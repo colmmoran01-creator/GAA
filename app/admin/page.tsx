@@ -14,8 +14,7 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import * as XLSX from "xlsx";
-import AppShell from "@/components/AppShell";
-
+import AppShell from "../components/AppShell";
 
 type Team = { id: string; name: string; season?: string };
 
