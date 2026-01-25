@@ -10,12 +10,18 @@ export default function HomePage() {
   const [loggedIn, setLoggedIn] = useState(false);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
-      setLoggedIn(!!user);
-      setReady(true);
-    });
-    return () => unsub();
-  }, []);
+  const unsub = onAuthStateChanged(auth, (user) => {
+    setLoggedIn(!!user);
+    setReady(true);
+
+    // Redirect logged-in users to Teams
+    if (user) {
+      window.location.href = "/teams";
+    }
+  });
+  return () => unsub();
+}, []);
+
 
   return (
     <main style={{ maxWidth: 720, margin: "40px auto", padding: 16 }}>
