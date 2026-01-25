@@ -370,7 +370,7 @@ export default function AdminPage() {
 
   if (loading) {
   return (
-    <AppShell title="Admin" showNav={false}>
+    <AppShell title="Admin" showTopNav={false}>
       <div className="py-10 text-sm text-neutral-600">Loading…</div>
     </AppShell>
   );
