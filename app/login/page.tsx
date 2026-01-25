@@ -1,67 +1,70 @@
 "use client";
 
-import { useState } from "react";
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "firebase/auth";
+import { useEffect, useState } from "react";
+import { createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
-  const [msg, setMsg] = useState<string>("");
+  const [msg, setMsg] = useState("");
 
-  async function register() {
-    setMsg("");
-    try {
-      await createUserWithEmailAndPassword(auth, email, pw);
-      setMsg("✅ Account created and logged in.");
-    } catch (e: any) {
-      setMsg(`❌ ${e.message}`);
-    }
-  }
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      if (u) window.location.href = "/teams";
+    });
+    return () => unsub();
+  }, []);
 
   async function login() {
     setMsg("");
     try {
       await signInWithEmailAndPassword(auth, email, pw);
-      setMsg("✅ Logged in.");
+      // redirect happens via onAuthStateChanged
     } catch (e: any) {
-      setMsg(`❌ ${e.message}`);
+      setMsg(e?.message ?? String(e));
+    }
+  }
+
+  async function register() {
+    setMsg("");
+    try {
+      await createUserWithEmailAndPassword(auth, email, pw);
+      // redirect happens via onAuthStateChanged
+    } catch (e: any) {
+      setMsg(e?.message ?? String(e));
     }
   }
 
   async function logout() {
-    setMsg("");
     await signOut(auth);
-    setMsg("✅ Logged out.");
+    setMsg("Logged out.");
   }
 
   return (
-    <main style={{ maxWidth: 420, margin: "40px auto", padding: 16 }}>
+    <main style={{ maxWidth: 520, margin: "40px auto", padding: 16 }}>
       <h1>Login</h1>
 
       <label>Email</label>
       <input
-        style={{ width: "100%", padding: 10, margin: "6px 0 12px" }}
         value={email}
         onChange={(e) => setEmail(e.target.value)}
+        style={{ width: "100%", padding: 10, margin: "6px 0 14px" }}
       />
 
       <label>Password</label>
       <input
-        style={{ width: "100%", padding: 10, margin: "6px 0 12px" }}
         type="password"
         value={pw}
         onChange={(e) => setPw(e.target.value)}
+        style={{ width: "100%", padding: 10, margin: "6px 0 14px" }}
       />
 
       <div style={{ display: "flex", gap: 10 }}>
-        <button onClick={login} style={{ padding: 10, flex: 1 }}>Log in</button>
-        <button onClick={register} style={{ padding: 10, flex: 1 }}>Register</button>
+        <button onClick={login} style={{ padding: "10px 14px" }}>Log in</button>
+        <button onClick={register} style={{ padding: "10px 14px" }}>Register</button>
+        <button onClick={logout} style={{ padding: "10px 14px" }}>Log out</button>
       </div>
-
-      <button onClick={logout} style={{ padding: 10, width: "100%", marginTop: 10 }}>
-        Log out
-      </button>
 
       {msg && <p style={{ marginTop: 14 }}>{msg}</p>}
 
