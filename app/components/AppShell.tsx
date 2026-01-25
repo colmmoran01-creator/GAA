@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import BottomNav from "@/app/components/BottomNav";
+import BottomNav from "./BottomNav";
 
 const MAROON = "#7A0019";
 const ROYAL = "#1E3A8A";
@@ -10,6 +10,7 @@ const ROYAL = "#1E3A8A";
 function NavLink({ href, label }: { href: string; label: string }) {
   const path = usePathname();
   const active = path === href || path.startsWith(href + "/");
+
   return (
     <Link
       href={href}
@@ -38,14 +39,13 @@ export default function AppShell({
       <header className="sticky top-0 z-10 border-b border-neutral-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
-         <img
-  src="/club-logo.png"
-  alt="Club logo"
-  className="h-9 w-9 rounded-2xl object-contain bg-white ring-1 ring-neutral-200"
-/>
+            {/* Logo */}
+            <img
+              src="/club-logo.png"
+              alt="Club logo"
+              className="h-9 w-9 rounded-2xl object-contain bg-white ring-1 ring-neutral-200"
+            />
 
-              GAA
-            </div>
             <div>
               <div className="text-sm font-semibold leading-tight">{title}</div>
               <div className="text-xs text-neutral-500 leading-tight">
