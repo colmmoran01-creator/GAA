@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 import {
   collection,
   doc,
@@ -9,340 +10,412 @@ import {
   getDocs,
   query,
   where,
-  setDoc,
+  addDoc,
+  updateDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-
-type Player = { id: string; name: string };
+import AppShell from "../../components/AppShell";
 
 type EventDoc = {
   teamId: string;
   type: "training" | "match" | "challenge";
-  date: string;
-  venue: string;
+  date: string; // yyyy-mm-dd
+  venue?: string;
+
+  venueType?: string;
+  venueOther?: string;
+
   opposition?: string;
   teamGoals?: number;
   teamPoints?: number;
   oppGoals?: number;
   oppPoints?: number;
+  result?: "W" | "D" | "L";
 };
 
-type Status = "present" | "absent" | "late" | "injured";
+type Player = { id: string; name: string };
 
-type AttendanceRow = {
-  status: Status;
-  reason?: string;
+type AttendanceStatus = "present" | "absent";
+type AttendanceReason =
+  | ""
+  | "Rugby"
+  | "Soccer"
+  | "Hurling"
+  | "Holidays"
+  | "Work"
+  | "No Apology";
+
+type AttendanceDoc = {
+  id: string;
+  eventId: string;
+  teamId: string;
+  playerId: string;
+  status: AttendanceStatus;
+  reason: AttendanceReason;
+  updatedAt: number;
 };
 
-const REASONS = ["Rugby", "Soccer", "Hurling", "Holidays", "Work", "No Apology"];
+const MAROON = "#7A0019";
+const ROYAL = "#1E3A8A";
+
+function scoreString(e: EventDoc) {
+  const tg = e.teamGoals ?? 0;
+  const tp = e.teamPoints ?? 0;
+  const og = e.oppGoals ?? 0;
+  const op = e.oppPoints ?? 0;
+  return `${tg}-${tp} vs ${og}-${op}`;
+}
 
 export default function EventPage() {
   const params = useParams();
-  const router = useRouter();
   const eventId = typeof params.eventId === "string" ? params.eventId : "";
 
-  const [event, setEvent] = useState<(EventDoc & { id: string }) | null>(null);
+  const [event, setEvent] = useState<EventDoc | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
-  const [att, setAtt] = useState<Record<string, AttendanceRow>>({});
+  const [attendanceDocs, setAttendanceDocs] = useState<AttendanceDoc[]>([]);
+
+  // Local editable state (so we can save explicitly)
+  const [draft, setDraft] = useState<Record<string, { status: AttendanceStatus; reason: AttendanceReason }>>({});
+
   const [loading, setLoading] = useState(true);
-  const [pageMsg, setPageMsg] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [error, setError] = useState("");
 
-  // Save indicator
-  const [saveState, setSaveState] =
-    useState<"idle" | "saving" | "saved" | "error">("idle");
-
-  // Button busy state
-  const [finalising, setFinalising] = useState(false);
-
-  const totalPlayers = players.length;
-
-  const markedCount = useMemo(() => {
-    // count players that have any attendance row in state
-    // (after loading we usually have all present, but this still works)
-    return Object.keys(att).length;
-  }, [att]);
+  const attendanceByPlayer = useMemo(() => {
+    const m = new Map<string, AttendanceDoc>();
+    for (const a of attendanceDocs) m.set(a.playerId, a);
+    return m;
+  }, [attendanceDocs]);
 
   useEffect(() => {
     (async () => {
       try {
         setLoading(true);
-        setPageMsg("");
+        setError("");
+        setMsg("");
 
         if (!eventId) {
-          setPageMsg("Missing eventId in URL.");
+          setError("Missing eventId from URL.");
+          setLoading(false);
           return;
         }
 
         // 1) Load event
         const evSnap = await getDoc(doc(db, "events", eventId));
         if (!evSnap.exists()) {
-          setPageMsg("Event not found.");
+          setError("Event not found.");
+          setLoading(false);
           return;
         }
 
-        const ev = { id: evSnap.id, ...(evSnap.data() as any) } as EventDoc & {
-          id: string;
-        };
+        const ev = evSnap.data() as any as EventDoc;
+        if (!ev?.teamId) {
+          setError("Event is missing teamId.");
+          setLoading(false);
+          return;
+        }
+
         setEvent(ev);
 
-        // 2) Load players for team
-        const psnap = await getDocs(
-          query(collection(db, "players"), where("teamId", "==", ev.teamId))
-        );
-
+        // 2) Load players for that team
+        const pq = query(collection(db, "players"), where("teamId", "==", ev.teamId));
+        const psnap = await getDocs(pq);
         const plist: Player[] = [];
         psnap.forEach((d) => plist.push({ id: d.id, ...(d.data() as any) }));
         plist.sort((a, b) => a.name.localeCompare(b.name));
         setPlayers(plist);
 
-        // 3) Load existing attendance records for this event
-        const asnap = await getDocs(
-          query(collection(db, "attendance"), where("eventId", "==", eventId))
-        );
+        // 3) Load existing attendance for this event
+        const aq = query(collection(db, "attendance"), where("eventId", "==", eventId));
+        const asnap = await getDocs(aq);
+        const alist: AttendanceDoc[] = [];
+        asnap.forEach((d) => alist.push({ id: d.id, ...(d.data() as any) }));
+        setAttendanceDocs(alist);
 
-        const map: Record<string, AttendanceRow> = {};
-        asnap.forEach((d) => {
-          const data = d.data() as any;
-          const pid = data.playerId as string;
-          const status = (data.status ?? "present") as Status;
-          const reason = typeof data.reason === "string" ? data.reason : undefined;
-          map[pid] = { status, reason };
-        });
+        // 4) Build draft from existing docs, defaulting to "present"
+        const nextDraft: Record<string, { status: AttendanceStatus; reason: AttendanceReason }> = {};
+        const amap = new Map<string, AttendanceDoc>();
+        for (const a of alist) amap.set(a.playerId, a);
 
-        // Default missing players to present (so UI is always filled)
         for (const p of plist) {
-          if (!map[p.id]) map[p.id] = { status: "present" };
+          const existing = amap.get(p.id);
+          if (existing) {
+            nextDraft[p.id] = { status: existing.status, reason: existing.reason ?? "" };
+          } else {
+            nextDraft[p.id] = { status: "present", reason: "" };
+          }
         }
-
-        setAtt(map);
+        setDraft(nextDraft);
       } catch (e: any) {
         console.error(e);
-        setPageMsg(e?.message ?? String(e));
+        setError(e?.message ?? String(e));
       } finally {
         setLoading(false);
       }
     })();
   }, [eventId]);
 
-  async function writeAttendance(playerId: string, row: AttendanceRow) {
-    if (!event) return;
+  function setStatus(playerId: string, status: AttendanceStatus) {
+    setDraft((prev) => {
+      const cur = prev[playerId] ?? { status: "present" as AttendanceStatus, reason: "" as AttendanceReason };
+      return {
+        ...prev,
+        [playerId]: {
+          status,
+          reason: status === "present" ? "" : cur.reason,
+        },
+      };
+    });
+  }
 
-    // Update UI instantly
-    setAtt((prev) => ({ ...prev, [playerId]: row }));
+  function setReason(playerId: string, reason: AttendanceReason) {
+    setDraft((prev) => {
+      const cur = prev[playerId] ?? { status: "absent" as AttendanceStatus, reason: "" as AttendanceReason };
+      return {
+        ...prev,
+        [playerId]: { ...cur, reason },
+      };
+    });
+  }
 
-    try {
-      setSaveState("saving");
-      await setDoc(doc(db, "attendance", `${eventId}_${playerId}`), {
-        eventId,
-        playerId,
-        teamId: event.teamId, // IMPORTANT for security rules
-        status: row.status,
-        reason: row.status === "absent" ? row.reason ?? null : null,
-        updatedAt: Date.now(),
-      });
-      setSaveState("saved");
-      setTimeout(() => setSaveState("idle"), 1200);
-    } catch (e) {
-      console.error(e);
-      setSaveState("error");
+  const summary = useMemo(() => {
+    const total = players.length;
+    let present = 0;
+    let absent = 0;
+    for (const p of players) {
+      const d = draft[p.id];
+      if (!d) continue;
+      if (d.status === "present") present++;
+      else absent++;
     }
-  }
+    return { total, present, absent };
+  }, [players, draft]);
 
-  async function setStatus(playerId: string, status: Status) {
-    const current = att[playerId] ?? { status: "present" as Status };
-
-    const nextRow: AttendanceRow =
-      status === "absent"
-        ? { status: "absent", reason: current.reason }
-        : { status };
-
-    await writeAttendance(playerId, nextRow);
-  }
-
-  async function setReason(playerId: string, reason: string) {
-    await writeAttendance(playerId, { status: "absent", reason: reason || undefined });
-  }
-
-  // ✅ NEW: Finalise/Sync - writes a record for EVERY player (present by default)
-  async function finaliseAttendance() {
-    if (!event) return;
-    if (players.length === 0) return;
-
-    setFinalising(true);
-    setSaveState("saving");
-
+  async function saveAll() {
     try {
-      for (const p of players) {
-        const row = att[p.id] ?? { status: "present" as Status };
+      setSaving(true);
+      setError("");
+      setMsg("");
 
-        await setDoc(doc(db, "attendance", `${eventId}_${p.id}`), {
-          eventId,
-          playerId: p.id,
-          teamId: event.teamId,
-          status: row.status,
-          reason: row.status === "absent" ? row.reason ?? null : null,
-          updatedAt: Date.now(),
-        });
+      if (!eventId) throw new Error("Missing eventId.");
+      if (!event?.teamId) throw new Error("Missing teamId on event.");
+
+      // For each player:
+      // - if attendance doc exists -> update it
+      // - else -> create it
+      const now = Date.now();
+
+      for (const p of players) {
+        const d = draft[p.id];
+        if (!d) continue;
+
+        const existing = attendanceByPlayer.get(p.id);
+
+        if (existing) {
+          await updateDoc(doc(db, "attendance", existing.id), {
+            status: d.status,
+            reason: d.status === "absent" ? d.reason : "",
+            updatedAt: now,
+          });
+        } else {
+          await addDoc(collection(db, "attendance"), {
+            eventId,
+            teamId: event.teamId,
+            playerId: p.id,
+            status: d.status,
+            reason: d.status === "absent" ? d.reason : "",
+            updatedAt: now,
+          });
+        }
       }
 
-      // ensure UI has a row for everyone
-      setAtt((prev) => {
-        const next = { ...prev };
-        for (const p of players) {
-          if (!next[p.id]) next[p.id] = { status: "present" };
-        }
-        return next;
-      });
+      // Reload attendance docs after save so admin reports match
+      const aq = query(collection(db, "attendance"), where("eventId", "==", eventId));
+      const asnap = await getDocs(aq);
+      const alist: AttendanceDoc[] = [];
+      asnap.forEach((d) => alist.push({ id: d.id, ...(d.data() as any) }));
+      setAttendanceDocs(alist);
 
-      setSaveState("saved");
-      setTimeout(() => setSaveState("idle"), 1500);
-    } catch (e) {
+      setMsg("Saved ✅");
+    } catch (e: any) {
       console.error(e);
-      setSaveState("error");
+      setError(e?.message ?? String(e));
     } finally {
-      setFinalising(false);
+      setSaving(false);
     }
   }
 
-  if (loading) return <main style={{ padding: 16 }}>Loading…</main>;
-  if (!event) return <main style={{ padding: 16 }}>{pageMsg || "Event missing."}</main>;
+  if (loading) {
+    return (
+      <AppShell title="Attendance" showTopNav={false}>
+        <div className="py-10 text-sm text-neutral-600">Loading…</div>
+      </AppShell>
+    );
+  }
 
-  const isMatch = event.type === "match" || event.type === "challenge";
+  if (error) {
+    return (
+      <AppShell title="Attendance" showTopNav={false}>
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          {error}
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (!event) {
+    return (
+      <AppShell title="Attendance" showTopNav={false}>
+        <div className="rounded-2xl border border-neutral-200 bg-white p-4 text-sm text-neutral-800">
+          No event data found.
+        </div>
+      </AppShell>
+    );
+  }
+
+  const showScore = event.type === "match" || event.type === "challenge";
 
   return (
-    <main style={{ maxWidth: 860, margin: "24px auto", padding: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-        <button onClick={() => router.back()} style={{ padding: "8px 10px" }}>
-          ← Back
-        </button>
+    <AppShell title="Attendance" showTopNav={false}>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <Link
+          href={`/team/${event.teamId}`}
+          className="text-sm font-semibold underline-offset-4 hover:underline"
+        >
+          ← Back to Team
+        </Link>
 
         <button
-          onClick={finaliseAttendance}
-          disabled={finalising}
-          style={{ padding: "8px 12px", fontWeight: 600 }}
+          onClick={saveAll}
+          disabled={saving}
+          className="rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          style={{ backgroundColor: MAROON }}
         >
-          {finalising ? "Saving all…" : "Save / Finalise Attendance"}
+          {saving ? "Saving…" : "Save"}
         </button>
       </div>
 
-      <h1 style={{ margin: "14px 0 6px" }}>
-        {event.type.toUpperCase()} — {event.date}
-      </h1>
+      <div className="rounded-2xl border border-neutral-200 bg-white p-4 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-lg font-semibold capitalize">
+              {event.type} • {event.date}
+            </div>
+            <div className="mt-1 text-sm text-neutral-600">
+              Venue: <strong>{event.venue || "—"}</strong>
+              {showScore && event.opposition ? (
+                <>
+                  {" "}
+                  • Opposition: <strong>{event.opposition}</strong>
+                </>
+              ) : null}
+            </div>
 
-      <p style={{ marginTop: 0, opacity: 0.85 }}>
-        <strong>Venue:</strong> {event.venue}
-        {isMatch && event.opposition ? (
-          <>
-            {" "}
-            • <strong>Vs:</strong> {event.opposition}
-          </>
-        ) : null}
-      </p>
+            {showScore && (
+              <div className="mt-2 text-sm">
+                <span
+                  className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold text-white"
+                  style={{ backgroundColor: ROYAL }}
+                >
+                  {event.result ? `Result: ${event.result}` : "Match"}
+                </span>
+                <span className="ml-2 text-sm text-neutral-700">
+                  {scoreString(event)}
+                </span>
+              </div>
+            )}
+          </div>
 
-      {isMatch && (
-        <p style={{ marginTop: 0, opacity: 0.85 }}>
-          <strong>Score:</strong>{" "}
-          {event.teamGoals ?? 0}-{event.teamPoints ?? 0} to {event.oppGoals ?? 0}-{event.oppPoints ?? 0}
-        </p>
-      )}
+          <div className="text-sm text-neutral-700">
+            <div>
+              Total: <strong>{summary.total}</strong>
+            </div>
+            <div>
+              Present: <strong>{summary.present}</strong> • Absent:{" "}
+              <strong>{summary.absent}</strong>
+            </div>
+          </div>
+        </div>
 
-      <p style={{ marginTop: 0, opacity: 0.75 }}>
-        Players loaded: <strong>{totalPlayers}</strong> • Attendance rows in state:{" "}
-        <strong>{markedCount}</strong>
-      </p>
+        {msg && (
+          <div className="mt-4 rounded-2xl border border-neutral-200 bg-neutral-50 p-3 text-sm text-neutral-800">
+            {msg}
+          </div>
+        )}
+      </div>
 
-      {saveState !== "idle" && (
-        <p style={{ marginTop: 8, opacity: 0.9 }}>
-          {saveState === "saving" && "Saving…"}
-          {saveState === "saved" && "Saved ✓"}
-          {saveState === "error" && "Save failed (check rules/permissions)."}
-        </p>
-      )}
-
-      <h2 style={{ marginTop: 18 }}>Attendance</h2>
-
-      <ul style={{ listStyle: "none", padding: 0 }}>
+      <div className="mt-4 rounded-2xl border border-neutral-200 bg-white divide-y">
         {players.map((p) => {
-          const row = att[p.id] ?? { status: "present" as Status };
+          const d = draft[p.id] ?? { status: "present" as AttendanceStatus, reason: "" as AttendanceReason };
+          const isPresent = d.status === "present";
+          const isAbsent = d.status === "absent";
 
           return (
-            <li
-              key={p.id}
-              style={{
-                border: "1px solid #eee",
-                borderRadius: 10,
-                padding: 12,
-                marginBottom: 10,
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                <strong>{p.name}</strong>
+            <div key={p.id} className="px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold">{p.name}</div>
 
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <div className="flex gap-2">
                   <button
                     onClick={() => setStatus(p.id, "present")}
-                    style={{
-                      padding: "8px 10px",
-                      border: row.status === "present" ? "2px solid #333" : "1px solid #ccc",
-                    }}
+                    className={[
+                      "rounded-xl px-3 py-2 text-xs font-semibold transition",
+                      isPresent ? "text-white" : "bg-neutral-100 text-neutral-900 hover:bg-neutral-200",
+                    ].join(" ")}
+                    style={isPresent ? { backgroundColor: ROYAL } : undefined}
                   >
                     Present
                   </button>
 
                   <button
                     onClick={() => setStatus(p.id, "absent")}
-                    style={{
-                      padding: "8px 10px",
-                      border: row.status === "absent" ? "2px solid #333" : "1px solid #ccc",
-                    }}
+                    className={[
+                      "rounded-xl px-3 py-2 text-xs font-semibold transition",
+                      isAbsent ? "text-white" : "bg-neutral-100 text-neutral-900 hover:bg-neutral-200",
+                    ].join(" ")}
+                    style={isAbsent ? { backgroundColor: MAROON } : undefined}
                   >
                     Absent
-                  </button>
-
-                  <button
-                    onClick={() => setStatus(p.id, "late")}
-                    style={{
-                      padding: "8px 10px",
-                      border: row.status === "late" ? "2px solid #333" : "1px solid #ccc",
-                    }}
-                  >
-                    Late
-                  </button>
-
-                  <button
-                    onClick={() => setStatus(p.id, "injured")}
-                    style={{
-                      padding: "8px 10px",
-                      border: row.status === "injured" ? "2px solid #333" : "1px solid #ccc",
-                    }}
-                  >
-                    Injured
                   </button>
                 </div>
               </div>
 
-              {row.status === "absent" && (
-                <div style={{ marginTop: 10 }}>
-                  <label style={{ fontSize: 13, opacity: 0.8 }}>Reason (optional)</label>
+              {isAbsent && (
+                <div className="mt-3">
+                  <label className="block text-xs font-medium text-neutral-600 mb-1">
+                    Reason
+                  </label>
                   <select
-                    value={row.reason ?? ""}
-                    onChange={(e) => setReason(p.id, e.target.value)}
-                    style={{ width: "100%", padding: 10, marginTop: 6 }}
+                    value={d.reason}
+                    onChange={(e) => setReason(p.id, e.target.value as AttendanceReason)}
+                    className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-neutral-900 focus:ring-2 focus:ring-neutral-200"
                   >
-                    <option value="">—</option>
-                    {REASONS.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
+                    <option value="">Select…</option>
+                    <option value="Rugby">Rugby</option>
+                    <option value="Soccer">Soccer</option>
+                    <option value="Hurling">Hurling</option>
+                    <option value="Holidays">Holidays</option>
+                    <option value="Work">Work</option>
+                    <option value="No Apology">No Apology</option>
                   </select>
                 </div>
               )}
-            </li>
+            </div>
           );
         })}
-      </ul>
-    </main>
+      </div>
+
+      <div className="mt-4">
+        <button
+          onClick={saveAll}
+          disabled={saving}
+          className="w-full rounded-2xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+          style={{ backgroundColor: MAROON }}
+        >
+          {saving ? "Saving…" : "Save Attendance"}
+        </button>
+      </div>
+    </AppShell>
   );
 }
-
