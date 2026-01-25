@@ -1,109 +1,42 @@
 "use client";
 
-import Link from "next/link";
-import { onAuthStateChanged } from "firebase/auth";
 import { useEffect, useState } from "react";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
+import Link from "next/link";
 
 export default function HomePage() {
-  const [ready, setReady] = useState(false);
-  const [loggedIn, setLoggedIn] = useState(false);
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-  const unsub = onAuthStateChanged(auth, (user) => {
-    setLoggedIn(!!user);
-    setReady(true);
+    const unsub = onAuthStateChanged(auth, (u) => {
+      if (u) {
+        // ✅ LOGGED IN → GO TO TEAMS
+        window.location.href = "/teams";
+      } else {
+        setUser(null);
+        setLoading(false);
+      }
+    });
 
-    // Redirect logged-in users to Teams
-    if (user) {
-      window.location.href = "/teams";
-    }
-  });
-  return () => unsub();
-}, []);
+    return () => unsub();
+  }, []);
 
+  if (loading) {
+    return <main style={{ padding: 24 }}>Loading…</main>;
+  }
 
   return (
-    <main style={{ maxWidth: 720, margin: "40px auto", padding: 16 }}>
-      <h1 style={{ marginBottom: 8 }}>Maryland / Tang Attendance</h1>
-      <p style={{ opacity: 0.8, marginTop: 0 }}>
-        Track training & match attendance, capture scores, and export committee reports.
-      </p>
+    <main style={{ maxWidth: 420, margin: "40px auto", padding: 16 }}>
+      <h1>Maryland / Tang Attendance</h1>
 
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 18 }}>
-        {!ready && <p>Loading…</p>}
+      <p>Please log in or register to continue.</p>
 
-        {ready && !loggedIn && (
-          <>
-            <Link
-              href="/login"
-              style={{
-                display: "inline-block",
-                padding: "10px 14px",
-                border: "1px solid #ccc",
-                borderRadius: 10,
-                textDecoration: "none",
-                fontWeight: 600,
-              }}
-            >
-              Login / Register
-            </Link>
-
-            <Link
-              href="/about"
-              style={{
-                display: "inline-block",
-                padding: "10px 14px",
-                border: "1px solid #ccc",
-                borderRadius: 10,
-                textDecoration: "none",
-              }}
-            >
-              What is this?
-            </Link>
-          </>
-        )}
-
-        {ready && loggedIn && (
-          <>
-            <Link
-              href="/teams"
-              style={{
-                display: "inline-block",
-                padding: "10px 14px",
-                border: "1px solid #ccc",
-                borderRadius: 10,
-                textDecoration: "none",
-                fontWeight: 600,
-              }}
-            >
-              Go to Teams
-            </Link>
-
-            <Link
-              href="/admin"
-              style={{
-                display: "inline-block",
-                padding: "10px 14px",
-                border: "1px solid #ccc",
-                borderRadius: 10,
-                textDecoration: "none",
-              }}
-            >
-              Admin Reports
-            </Link>
-          </>
-        )}
+      <div style={{ display: "flex", gap: 12, marginTop: 20 }}>
+        <Link href="/login">Log in</Link>
+        <Link href="/register">Register</Link>
       </div>
-
-      <hr style={{ margin: "24px 0" }} />
-
-      <ul style={{ lineHeight: 1.8, margin: 0, paddingLeft: 18, opacity: 0.9 }}>
-        <li>Create Training / Match / Challenge events</li>
-        <li>Mark attendance (Present/Absent/Late/Injured + reasons)</li>
-        <li>Capture match scores</li>
-        <li>Export CSV reports (matrix + totals)</li>
-      </ul>
     </main>
   );
 }
