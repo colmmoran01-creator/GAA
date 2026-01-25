@@ -1,138 +1,121 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
-import { onAuthStateChanged, signOut } from "firebase/auth";
+import Link from "next/link";
+import { onAuthStateChanged } from "firebase/auth";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import AppShell from "../components/AppShell";
 
-type Team = { id: string; name: string; season?: string };
+type Team = {
+  id: string;
+  name: string;
+};
+
+const ROYAL = "#1E3A8A";
+const MAROON = "#7A0019";
 
 export default function TeamsPage() {
   const [loading, setLoading] = useState(true);
-  const [msg, setMsg] = useState("");
-  const [teams, setTeams] = useState<Team[]>([]);
   const [uid, setUid] = useState("");
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [msg, setMsg] = useState("");
 
   useEffect(() => {
-    // Subscribe to auth changes
-    const unsub = onAuthStateChanged(auth, (user) => {
-      if (!user) {
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      if (!u) {
         window.location.href = "/login";
         return;
       }
+      setUid(u.uid);
 
-      setUid(user.uid);
+      try {
+        setLoading(true);
+        setMsg("");
 
-      // Load teams for this UID (admin OR coach)
-      (async () => {
-        try {
-          setLoading(true);
-          setMsg("");
+        // Teams where user is a coach OR admin
+        const qCoach = query(collection(db, "teams"), where("coachUids", "array-contains", u.uid));
+        const qAdmin = query(collection(db, "teams"), where("adminUids", "array-contains", u.uid));
 
-          const qAdmin = query(
-            collection(db, "teams"),
-            where("adminUids", "array-contains", user.uid)
-          );
-          const qCoach = query(
-            collection(db, "teams"),
-            where("coachUids", "array-contains", user.uid)
-          );
+        const [snapCoach, snapAdmin] = await Promise.all([getDocs(qCoach), getDocs(qAdmin)]);
 
-          const [adminSnap, coachSnap] = await Promise.all([
-            getDocs(qAdmin),
-            getDocs(qCoach),
-          ]);
+        const map = new Map<string, Team>();
 
-          const map = new Map<string, Team>();
+        snapCoach.forEach((d) => {
+          const data = d.data() as any;
+          map.set(d.id, { id: d.id, name: data.name || "Team" });
+        });
+        snapAdmin.forEach((d) => {
+          const data = d.data() as any;
+          map.set(d.id, { id: d.id, name: data.name || "Team" });
+        });
 
-          adminSnap.forEach((d) => {
-            const data = d.data() as any;
-            map.set(d.id, { id: d.id, name: data.name, season: data.season });
-          });
-
-          coachSnap.forEach((d) => {
-            const data = d.data() as any;
-            map.set(d.id, { id: d.id, name: data.name, season: data.season });
-          });
-
-          const list = Array.from(map.values()).sort((a, b) =>
-            (a.name || "").localeCompare(b.name || "")
-          );
-
-          setTeams(list);
-        } catch (e: any) {
-          console.error(e);
-          setMsg(e?.message ?? String(e));
-        } finally {
-          setLoading(false);
-        }
-      })();
+        const list = Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+        setTeams(list);
+      } catch (e: any) {
+        console.error(e);
+        setMsg(e?.message ?? String(e));
+      } finally {
+        setLoading(false);
+      }
     });
 
-    // ✅ Cleanup must be returned from useEffect (and ONLY here)
-    return () => {
-      unsub();
-    };
+    return () => unsub();
   }, []);
 
-  async function logout() {
-    await signOut(auth);
-    window.location.href = "/";
-  }
-
-  if (loading) return <main style={{ padding: 16 }}>Loading teams…</main>;
-
   return (
-    <main style={{ maxWidth: 760, margin: "24px auto", padding: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-        <h1 style={{ margin: 0 }}>Your Teams</h1>
-        <button onClick={logout} style={{ padding: "8px 10px" }}>
-          Logout
-        </button>
-      </div>
+    <AppShell title="Teams">
+      {loading && <div className="py-10 text-sm text-neutral-600">Loading teams…</div>}
 
-      {/* UID helper */}
-      <div
-        style={{
-          marginTop: 12,
-          padding: 10,
-          border: "1px dashed #ccc",
-          borderRadius: 8,
-          fontSize: 13,
-          background: "#fafafa",
-        }}
-      >
-        <strong>Your User ID (UID)</strong>
-        <div style={{ wordBreak: "break-all", marginTop: 4 }}>{uid}</div>
-        <div style={{ marginTop: 6, opacity: 0.7 }}>
-          Add this UID to <code>adminUids</code> or <code>coachUids</code> in the team document.
+      {!loading && msg && (
+        <div className="rounded-2xl border border-neutral-200 bg-white p-4 text-sm text-neutral-800">
+          {msg}
         </div>
-      </div>
-
-      {msg && <p style={{ marginTop: 12 }}>{msg}</p>}
-
-      {teams.length === 0 ? (
-        <p style={{ marginTop: 16 }}>
-          No teams found for your user yet. Once your UID is added to a team, it will appear here automatically.
-        </p>
-      ) : (
-        <ul style={{ marginTop: 16, paddingLeft: 18 }}>
-          {teams.map((t) => (
-            <li key={t.id} style={{ marginBottom: 10 }}>
-              <Link href={`/team/${t.id}`} style={{ fontWeight: 700 }}>
-                {t.name}
-              </Link>
-              {t.season ? <span style={{ opacity: 0.7 }}> — Season {t.season}</span> : null}
-            </li>
-          ))}
-        </ul>
       )}
 
-      <div style={{ marginTop: 18 }}>
-        <Link href="/admin">Admin Reports</Link>
-      </div>
-    </main>
+      {!loading && !msg && teams.length === 0 && (
+        <div className="rounded-2xl border border-neutral-200 bg-white p-4">
+          <div className="text-sm font-semibold">No teams assigned</div>
+          <div className="mt-1 text-sm text-neutral-600">
+            Your UID is <span className="font-mono text-xs">{uid}</span>. Add this to <strong>coachUids</strong> or{" "}
+            <strong>adminUids</strong> in Firestore for the team.
+          </div>
+        </div>
+      )}
+
+      {!loading && teams.length > 0 && (
+        <div className="grid gap-3">
+          {teams.map((t) => (
+            <Link
+              key={t.id}
+              href={`/team/${t.id}`}
+              className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm transition hover:shadow-md"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-base font-semibold">{t.name}</div>
+                  <div className="mt-1 text-sm text-neutral-600">Tap to view players & events</div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span
+                    className="rounded-full px-3 py-1 text-xs font-semibold text-white"
+                    style={{ backgroundColor: ROYAL }}
+                  >
+                    Open
+                  </span>
+                  <span
+                    className="rounded-full px-3 py-1 text-xs font-semibold text-white"
+                    style={{ backgroundColor: MAROON }}
+                  >
+                    Coach
+                  </span>
+                </div>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </AppShell>
   );
 }
-

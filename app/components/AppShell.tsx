@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signOut } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import BottomNav from "@/app/components/BottomNav";
+
+const MAROON = "#7A0019";
+const ROYAL = "#1E3A8A";
 
 function NavLink({ href, label }: { href: string; label: string }) {
   const path = usePathname();
@@ -13,8 +15,9 @@ function NavLink({ href, label }: { href: string; label: string }) {
       href={href}
       className={[
         "rounded-xl px-3 py-2 text-sm font-semibold transition",
-        active ? "bg-neutral-900 text-white" : "text-neutral-700 hover:bg-neutral-100",
+        active ? "text-white" : "text-neutral-700 hover:bg-neutral-100",
       ].join(" ")}
+      style={active ? { backgroundColor: ROYAL } : undefined}
     >
       {label}
     </Link>
@@ -24,41 +27,43 @@ function NavLink({ href, label }: { href: string; label: string }) {
 export default function AppShell({
   title,
   children,
-  showNav = true,
+  showTopNav = true,
 }: {
   title: string;
   children: React.ReactNode;
-  showNav?: boolean;
+  showTopNav?: boolean;
 }) {
-  async function logout() {
-    await signOut(auth);
-    window.location.href = "/";
-  }
-
   return (
     <div className="min-h-dvh bg-neutral-50">
       <header className="sticky top-0 z-10 border-b border-neutral-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-2xl bg-neutral-900 text-white font-black">
+            <div
+              className="grid h-9 w-9 place-items-center rounded-2xl text-white font-black"
+              style={{ backgroundColor: MAROON }}
+            >
               GAA
             </div>
             <div>
               <div className="text-sm font-semibold leading-tight">{title}</div>
-              <div className="text-xs text-neutral-500 leading-tight">Attendance & Matches</div>
+              <div className="text-xs text-neutral-500 leading-tight">
+                Attendance & Matches
+              </div>
             </div>
           </div>
 
-          <button
-            onClick={logout}
-            className="rounded-xl bg-neutral-100 px-3 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-200"
-          >
-            Logout
-          </button>
+          <div className="hidden sm:flex items-center gap-2">
+            <span
+              className="rounded-full px-3 py-1 text-xs font-semibold text-white"
+              style={{ backgroundColor: ROYAL }}
+            >
+              Club Tools
+            </span>
+          </div>
         </div>
 
-        {showNav && (
-          <nav className="mx-auto max-w-3xl px-4 pb-3">
+        {showTopNav && (
+          <nav className="mx-auto hidden max-w-3xl px-4 pb-3 sm:block">
             <div className="flex gap-2">
               <NavLink href="/teams" label="Teams" />
               <NavLink href="/admin" label="Admin" />
@@ -67,7 +72,11 @@ export default function AppShell({
         )}
       </header>
 
-      <main className="mx-auto max-w-3xl px-4 py-4">{children}</main>
+      {/* Padding-bottom so content doesn't sit behind bottom nav */}
+      <main className="mx-auto max-w-3xl px-4 py-4 pb-28">{children}</main>
+
+      {/* Mobile bottom nav */}
+      <BottomNav />
     </div>
   );
 }
