@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { addDoc, collection } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import AppShell from "../../components/AppShell";
+import AppShell from "../../../components/AppShell";
 
 type EventType = "training" | "match" | "challenge";
 type VenueType = "Maryland" | "Tang" | "Other";
