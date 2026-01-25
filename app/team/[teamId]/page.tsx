@@ -2,7 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  query,
+  where,
+} from "firebase/firestore";
 import Link from "next/link";
 import { db } from "@/lib/firebase";
 import AppShell from "../../components/AppShell";
@@ -19,38 +26,62 @@ export default function TeamPage() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [msg, setMsg] = useState("");
+  const [deletingId, setDeletingId] = useState<string>("");
+
+  async function loadPlayers() {
+    try {
+      setError("");
+      setMsg("");
+
+      if (!teamId) {
+        setError("Missing teamId from URL. Go back to Teams and reopen the team.");
+        setLoading(false);
+        return;
+      }
+
+      const q = query(collection(db, "players"), where("teamId", "==", teamId));
+      const snap = await getDocs(q);
+      const list: Player[] = [];
+      snap.forEach((d) => list.push({ id: d.id, ...(d.data() as any) }));
+      list.sort((a, b) => a.name.localeCompare(b.name));
+      setPlayers(list);
+    } catch (e: any) {
+      console.error(e);
+      setError(e?.message ?? String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    (async () => {
-      try {
-        if (!teamId) {
-          setError("Missing teamId from URL. Go back to Teams and reopen the team.");
-          setLoading(false);
-          return;
-        }
-
-        const q = query(
-          collection(db, "players"),
-          where("teamId", "==", teamId)
-        );
-
-        const snap = await getDocs(q);
-        const list: Player[] = [];
-
-        snap.forEach((d) =>
-          list.push({ id: d.id, ...(d.data() as any) })
-        );
-
-        list.sort((a, b) => a.name.localeCompare(b.name));
-        setPlayers(list);
-      } catch (e: any) {
-        console.error(e);
-        setError(e?.message ?? String(e));
-      } finally {
-        setLoading(false);
-      }
-    })();
+    loadPlayers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamId]);
+
+  async function removePlayer(p: Player) {
+    setMsg("");
+    setError("");
+
+    const ok = window.confirm(`Remove ${p.name} from this team?\n\nThis will delete the player record.`);
+    if (!ok) return;
+
+    try {
+      setDeletingId(p.id);
+
+      // Delete player doc
+      await deleteDoc(doc(db, "players", p.id));
+
+      // Update UI immediately
+      setPlayers((prev) => prev.filter((x) => x.id !== p.id));
+      setMsg(`Removed: ${p.name}`);
+    } catch (e: any) {
+      console.error(e);
+      setError(e?.message ?? String(e));
+    } finally {
+      setDeletingId("");
+    }
+  }
 
   return (
     <AppShell title="Team">
@@ -84,12 +115,13 @@ export default function TeamPage() {
         </div>
       </div>
 
-      {/* CONTENT */}
-      {loading && (
-        <div className="py-10 text-sm text-neutral-600">
-          Loading players…
+      {msg && (
+        <div className="mb-3 rounded-2xl border border-neutral-200 bg-white p-3 text-sm text-neutral-800">
+          {msg}
         </div>
       )}
+
+      {loading && <div className="py-10 text-sm text-neutral-600">Loading players…</div>}
 
       {error && (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
@@ -108,9 +140,18 @@ export default function TeamPage() {
           {players.map((p) => (
             <div
               key={p.id}
-              className="flex items-center justify-between px-4 py-3"
+              className="flex items-center justify-between gap-3 px-4 py-3"
             >
               <div className="text-sm font-medium">{p.name}</div>
+
+              <button
+                onClick={() => removePlayer(p)}
+                disabled={deletingId === p.id}
+                className="rounded-xl px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+                style={{ backgroundColor: MAROON }}
+              >
+                {deletingId === p.id ? "Removing…" : "Remove"}
+              </button>
             </div>
           ))}
         </div>
