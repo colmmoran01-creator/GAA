@@ -15,7 +15,8 @@ export default function TeamsPage() {
   const [uid, setUid] = useState<string>("");
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
+    // ✅ IMPORTANT: cleanup return must be here, not inside the callback
+    const unsub = onAuthStateChanged(auth, (user) => {
       if (!user) {
         window.location.href = "/login";
         return;
@@ -23,47 +24,49 @@ export default function TeamsPage() {
 
       setUid(user.uid);
 
-      try {
-        setLoading(true);
-        setMsg("");
+      (async () => {
+        try {
+          setLoading(true);
+          setMsg("");
 
-        const qAdmin = query(
-          collection(db, "teams"),
-          where("adminUids", "array-contains", user.uid)
-        );
-        const qCoach = query(
-          collection(db, "teams"),
-          where("coachUids", "array-contains", user.uid)
-        );
+          const qAdmin = query(
+            collection(db, "teams"),
+            where("adminUids", "array-contains", user.uid)
+          );
+          const qCoach = query(
+            collection(db, "teams"),
+            where("coachUids", "array-contains", user.uid)
+          );
 
-        const [adminSnap, coachSnap] = await Promise.all([
-          getDocs(qAdmin),
-          getDocs(qCoach),
-        ]);
+          const [adminSnap, coachSnap] = await Promise.all([
+            getDocs(qAdmin),
+            getDocs(qCoach),
+          ]);
 
-        const map = new Map<string, Team>();
+          const map = new Map<string, Team>();
 
-        adminSnap.forEach((d) => {
-          const data = d.data() as any;
-          map.set(d.id, { id: d.id, name: data.name, season: data.season });
-        });
+          adminSnap.forEach((d) => {
+            const data = d.data() as any;
+            map.set(d.id, { id: d.id, name: data.name, season: data.season });
+          });
 
-        coachSnap.forEach((d) => {
-          const data = d.data() as any;
-          map.set(d.id, { id: d.id, name: data.name, season: data.season });
-        });
+          coachSnap.forEach((d) => {
+            const data = d.data() as any;
+            map.set(d.id, { id: d.id, name: data.name, season: data.season });
+          });
 
-        const list = Array.from(map.values()).sort((a, b) =>
-          (a.name || "").localeCompare(b.name || "")
-        );
+          const list = Array.from(map.values()).sort((a, b) =>
+            (a.name || "").localeCompare(b.name || "")
+          );
 
-        setTeams(list);
-      } catch (e: any) {
-        console.error(e);
-        setMsg(e?.message ?? String(e));
-      } finally {
-        setLoading(false);
-      }
+          setTeams(list);
+        } catch (e: any) {
+          console.error(e);
+          setMsg(e?.message ?? String(e));
+        } finally {
+          setLoading(false);
+        }
+      })();
     });
 
     return () => unsub();
