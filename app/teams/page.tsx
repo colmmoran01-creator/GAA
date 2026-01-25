@@ -1,64 +1,75 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, getDocs, query, where } from "firebase/firestore";
-import Link from "next/link";
 import { auth, db } from "@/lib/firebase";
 
 type Team = { id: string; name: string; season: string };
 
 export default function TeamsPage() {
-  const [uid, setUid] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [msg, setMsg] = useState("");
   const [teams, setTeams] = useState<Team[]>([]);
-  const [msg, setMsg] = useState("Loading…");
 
   useEffect(() => {
-    return onAuthStateChanged(auth, async (user) => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
       if (!user) {
-        setMsg("You are not logged in. Go to /login");
+        window.location.href = "/login";
         return;
       }
-      setUid(user.uid);
 
-      // Find teams where you're a coach or admin
-      const teamsRef = collection(db, "teams");
-      const q1 = query(teamsRef, where("coachUids", "array-contains", user.uid));
-      const q2 = query(teamsRef, where("adminUids", "array-contains", user.uid));
+      try {
+        setLoading(true);
+        setMsg("");
 
-      const [s1, s2] = await Promise.all([getDocs(q1), getDocs(q2)]);
-      const map = new Map<string, Team>();
+        // Show teams where user is coach or admin (UID based)
+        const snap = await getDocs(
+          query(
+            collection(db, "teams"),
+            where("memberUids", "array-contains", user.uid)
+          )
+        );
 
-      s1.forEach((d) => map.set(d.id, { id: d.id, ...(d.data() as any) }));
-      s2.forEach((d) => map.set(d.id, { id: d.id, ...(d.data() as any) }));
-
-      const list = Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-      setTeams(list);
-      setMsg(list.length ? "" : "No teams found for your user yet (check coachUids/adminUids).");
+        const list: Team[] = [];
+        snap.forEach((d) => list.push({ id: d.id, ...(d.data() as any) }));
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        setTeams(list);
+      } catch (e: any) {
+        console.error(e);
+        setMsg(e?.message ?? String(e));
+      } finally {
+        setLoading(false);
+      }
     });
+
+    return () => unsub();
   }, []);
 
-  return (
-    <main style={{ maxWidth: 640, margin: "24px auto", padding: 16 }}>
-      <h1>My Teams</h1>
-      {!uid && <p>{msg}</p>}
+  if (loading) return <main style={{ padding: 16 }}>Loading teams…</main>;
 
-      {teams.length > 0 && (
-        <ul style={{ listStyle: "none", padding: 0 }}>
+  return (
+    <main style={{ maxWidth: 720, margin: "24px auto", padding: 16 }}>
+      <h1>Your Teams</h1>
+      {msg && <p>{msg}</p>}
+
+      {teams.length === 0 ? (
+        <p>No teams found for your user. Ask admin to add your UID (or we’ll switch to email invites).</p>
+      ) : (
+        <ul>
           {teams.map((t) => (
-            <li key={t.id} style={{ border: "1px solid #ddd", borderRadius: 10, padding: 14, marginBottom: 10 }}>
-              <strong>{t.name}</strong> <span style={{ opacity: 0.7 }}>(Season {t.season})</span>
-              <div style={{ marginTop: 8 }}>
-                <Link href={`/team/${t.id}`}>Open team</Link>
-              </div>
+            <li key={t.id} style={{ marginBottom: 10 }}>
+              <Link href={`/team/${t.id}`}>{t.name} (Season {t.season})</Link>
             </li>
           ))}
         </ul>
       )}
 
-      <p style={{ marginTop: 16, opacity: 0.7 }}>
-        Tip: If you see “No teams found”, make sure you pasted your UID into coachUids/adminUids.
+      <p style={{ marginTop: 20 }}>
+        <Link href="/admin">Admin Reports</Link>
       </p>
     </main>
   );
 }
+
