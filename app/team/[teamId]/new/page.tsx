@@ -6,6 +6,7 @@ import { addDoc, collection } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 type EventType = "training" | "match" | "challenge";
+type VenueType = "Maryland" | "Tang" | "Other";
 
 function calcResult(teamTotal: number, oppTotal: number): "W" | "D" | "L" {
   if (teamTotal > oppTotal) return "W";
@@ -20,7 +21,11 @@ export default function NewEventPage() {
 
   const [type, setType] = useState<EventType>("training");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [venue, setVenue] = useState("");
+
+  // ✅ Venue: dropdown + optional free-text
+  const [venueType, setVenueType] = useState<VenueType>("Maryland");
+  const [venueOther, setVenueOther] = useState("");
+
   const [opposition, setOpposition] = useState("");
 
   const [teamGoals, setTeamGoals] = useState(0);
@@ -30,7 +35,12 @@ export default function NewEventPage() {
 
   async function create() {
     if (!teamId) return alert("Missing teamId. Go back to /teams and open a team.");
-    if (!venue.trim()) return alert("Venue is required.");
+
+    // Final venue string saved to Firestore
+    const venueFinal =
+      venueType === "Other" ? venueOther.trim() : venueType;
+
+    if (!venueFinal) return alert("Venue is required.");
 
     const isMatch = type === "match" || type === "challenge";
 
@@ -38,7 +48,9 @@ export default function NewEventPage() {
       teamId,
       type,
       date,
-      venue: venue.trim(),
+      venue: venueFinal, // ✅ single human-readable venue string
+      venueType,         // ✅ optional (helps later if you want it)
+      venueOther: venueType === "Other" ? venueOther.trim() : "",
       createdAt: Date.now(),
     };
 
@@ -64,30 +76,73 @@ export default function NewEventPage() {
       <h1>New Event</h1>
 
       <label>Type</label>
-      <select value={type} onChange={(e) => setType(e.target.value as EventType)} style={{ width: "100%", padding: 10, marginBottom: 10 }}>
+      <select
+        value={type}
+        onChange={(e) => setType(e.target.value as EventType)}
+        style={{ width: "100%", padding: 10, marginBottom: 10 }}
+      >
         <option value="training">Training</option>
         <option value="match">Match</option>
         <option value="challenge">Challenge</option>
       </select>
 
       <label>Date</label>
-      <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: "100%", padding: 10, marginBottom: 10 }} />
+      <input
+        type="date"
+        value={date}
+        onChange={(e) => setDate(e.target.value)}
+        style={{ width: "100%", padding: 10, marginBottom: 10 }}
+      />
 
       <label>Venue</label>
-      <input value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="e.g., Tang" style={{ width: "100%", padding: 10, marginBottom: 10 }} />
+      <select
+        value={venueType}
+        onChange={(e) => setVenueType(e.target.value as VenueType)}
+        style={{ width: "100%", padding: 10, marginBottom: 10 }}
+      >
+        <option value="Maryland">Maryland</option>
+        <option value="Tang">Tang</option>
+        <option value="Other">Other</option>
+      </select>
+
+      {venueType === "Other" && (
+        <input
+          value={venueOther}
+          onChange={(e) => setVenueOther(e.target.value)}
+          placeholder="Enter venue name (e.g., Ballinagore)"
+          style={{ width: "100%", padding: 10, marginBottom: 10 }}
+        />
+      )}
 
       {(type === "match" || type === "challenge") && (
         <>
           <label>Opposition</label>
-          <input value={opposition} onChange={(e) => setOpposition(e.target.value)} placeholder="e.g., Caulry" style={{ width: "100%", padding: 10, marginBottom: 12 }} />
+          <input
+            value={opposition}
+            onChange={(e) => setOpposition(e.target.value)}
+            placeholder="e.g., Caulry"
+            style={{ width: "100%", padding: 10, marginBottom: 12 }}
+          />
 
           <h3>Score</h3>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div style={{ border: "1px solid #ddd", borderRadius: 10, padding: 12 }}>
               <strong>Our team</strong>
               <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-                <input type="number" min={0} value={teamGoals} onChange={(e) => setTeamGoals(parseInt(e.target.value || "0", 10))} style={{ width: "100%", padding: 10 }} />
-                <input type="number" min={0} value={teamPoints} onChange={(e) => setTeamPoints(parseInt(e.target.value || "0", 10))} style={{ width: "100%", padding: 10 }} />
+                <input
+                  type="number"
+                  min={0}
+                  value={teamGoals}
+                  onChange={(e) => setTeamGoals(parseInt(e.target.value || "0", 10))}
+                  style={{ width: "100%", padding: 10 }}
+                />
+                <input
+                  type="number"
+                  min={0}
+                  value={teamPoints}
+                  onChange={(e) => setTeamPoints(parseInt(e.target.value || "0", 10))}
+                  style={{ width: "100%", padding: 10 }}
+                />
               </div>
               <div style={{ fontSize: 13, opacity: 0.75, marginTop: 6 }}>Goals • Points</div>
             </div>
@@ -95,8 +150,20 @@ export default function NewEventPage() {
             <div style={{ border: "1px solid #ddd", borderRadius: 10, padding: 12 }}>
               <strong>Opposition</strong>
               <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-                <input type="number" min={0} value={oppGoals} onChange={(e) => setOppGoals(parseInt(e.target.value || "0", 10))} style={{ width: "100%", padding: 10 }} />
-                <input type="number" min={0} value={oppPoints} onChange={(e) => setOppPoints(parseInt(e.target.value || "0", 10))} style={{ width: "100%", padding: 10 }} />
+                <input
+                  type="number"
+                  min={0}
+                  value={oppGoals}
+                  onChange={(e) => setOppGoals(parseInt(e.target.value || "0", 10))}
+                  style={{ width: "100%", padding: 10 }}
+                />
+                <input
+                  type="number"
+                  min={0}
+                  value={oppPoints}
+                  onChange={(e) => setOppPoints(parseInt(e.target.value || "0", 10))}
+                  style={{ width: "100%", padding: 10 }}
+                />
               </div>
               <div style={{ fontSize: 13, opacity: 0.75, marginTop: 6 }}>Goals • Points</div>
             </div>
@@ -110,3 +177,4 @@ export default function NewEventPage() {
     </main>
   );
 }
+
