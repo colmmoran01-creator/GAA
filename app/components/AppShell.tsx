@@ -38,10 +38,12 @@ export default function AppShell({
       <header className="sticky top-0 z-10 border-b border-neutral-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
-            <div
-              className="grid h-9 w-9 place-items-center rounded-2xl text-white font-black"
-              style={{ backgroundColor: MAROON }}
-            >
+         <img
+  src="/club-logo.png"
+  alt="Club logo"
+  className="h-9 w-9 rounded-2xl object-contain bg-white ring-1 ring-neutral-200"
+/>
+
               GAA
             </div>
             <div>

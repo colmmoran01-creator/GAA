@@ -58,6 +58,14 @@ export default function LoginPage() {
 
   if (loading) return <div className="py-10 text-sm text-neutral-600">Loading…</div>;
 
+<div className="flex justify-center mb-4">
+  <img
+    src="/club-logo.png"
+    alt="Club logo"
+    className="h-16 w-16 rounded-2xl object-contain bg-white ring-1 ring-neutral-200"
+  />
+</div>
+
   return (
     <div className="py-6">
       <Card>
