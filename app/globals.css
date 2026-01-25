@@ -2,119 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
-/* =========================
-   Global readability fixes
-   ========================= */
+/* ---- Minimal readability fix (NO layout changes) ---- */
 
-/* Base text colour */
-html, body {
-  color: #111827; /* neutral-900 */
-  background-color: #f9fafb; /* neutral-50 */
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+input, textarea, select {
+  color: #111827; /* dark text */
 }
 
-/* Ensure all text defaults to readable colour */
-* {
-  color: inherit;
-}
-
-/* Headings */
-h1, h2, h3, h4, h5, h6 {
-  color: #0f172a; /* slate-900 */
-}
-
-/* Paragraphs, labels, list items */
-p, li, label, span, div {
-  color: #111827;
-}
-
-/* Secondary / muted text (explicit only) */
-.text-muted,
-.text-neutral-500,
-.text-neutral-400 {
-  color: #4b5563 !important; /* neutral-600 */
-}
-
-/* =========================
-   Form controls (CRITICAL)
-   ========================= */
-
-input,
-textarea,
-select {
-  color: #111827 !important;
-  background-color: #ffffff;
-  border-color: #d1d5db; /* neutral-300 */
-}
-
-/* Placeholders */
 input::placeholder,
 textarea::placeholder {
-  color: #6b7280; /* neutral-500 */
+  color: #6b7280;
   opacity: 1;
 }
 
-/* Focus states */
-input:focus,
-textarea:focus,
-select:focus {
-  outline: none;
-  border-color: #1e3a8a; /* royal blue */
-  box-shadow: 0 0 0 2px rgba(30, 58, 138, 0.15);
-}
-
-/* iOS autofill fix (VERY important) */
-input:-webkit-autofill,
-textarea:-webkit-autofill,
-select:-webkit-autofill {
-  -webkit-text-fill-color: #111827 !important;
-  transition: background-color 5000s ease-in-out 0s;
-}
-
-/* =========================
-   Buttons
-   ========================= */
-
-button {
+/* Player names / main content text */
+body {
   color: #111827;
-}
-
-button:disabled {
-  opacity: 0.6;
-}
-
-/* =========================
-   Lists (player names, etc.)
-   ========================= */
-
-ul, ol {
-  color: #111827;
-}
-
-li {
-  color: #111827;
-}
-
-/* =========================
-   Links
-   ========================= */
-
-a {
-  color: #1e3a8a; /* royal blue */
-  text-decoration-color: rgba(30, 58, 138, 0.4);
-}
-
-a:hover {
-  text-decoration: underline;
-}
-
-/* =========================
-   Utility safety net
-   ========================= */
-
-/* Catch any accidental light text */
-.text-neutral-300,
-.text-neutral-200 {
-  color: #374151 !important; /* neutral-700 */
 }
