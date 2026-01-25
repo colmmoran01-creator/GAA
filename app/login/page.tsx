@@ -1,18 +1,28 @@
 "use client";
 
-import { sendPasswordResetEmail } from "firebase/auth";
 import { useEffect, useState } from "react";
-import { createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  onAuthStateChanged,
+} from "firebase/auth";
 import { auth } from "@/lib/firebase";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
-  const [pw, setPw] = useState("");
+  const [password, setPassword] = useState("");
   const [msg, setMsg] = useState("");
+  const [loading, setLoading] = useState(true);
 
+  // ✅ If already logged in, go straight to teams
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
-      if (u) window.location.href = "/teams";
+    const unsub = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        window.location.href = "/teams";
+      } else {
+        setLoading(false);
+      }
     });
     return () => unsub();
   }, []);
@@ -20,76 +30,87 @@ export default function LoginPage() {
   async function login() {
     setMsg("");
     try {
-      await signInWithEmailAndPassword(auth, email, pw);
-      // redirect happens via onAuthStateChanged
+      await signInWithEmailAndPassword(auth, email, password);
+      // redirect handled by onAuthStateChanged
     } catch (e: any) {
       setMsg(e?.message ?? String(e));
     }
   }
-
-async function forgotPassword() {
-  setMsg("");
-  try {
-    if (!email) {
-      setMsg("Enter your email first, then press Forgot password.");
-      return;
-    }
-    await sendPasswordResetEmail(auth, email);
-    setMsg("Password reset email sent. Check your inbox (and spam/junk).");
-  } catch (e: any) {
-    console.error(e);
-    setMsg(e?.message ?? String(e));
-  }
-}
 
   async function register() {
     setMsg("");
     try {
-      await createUserWithEmailAndPassword(auth, email, pw);
-      // redirect happens via onAuthStateChanged
+      await createUserWithEmailAndPassword(auth, email, password);
+      // redirect handled by onAuthStateChanged
     } catch (e: any) {
       setMsg(e?.message ?? String(e));
     }
   }
 
-  async function logout() {
-    await signOut(auth);
-    setMsg("Logged out.");
+  async function forgotPassword() {
+    setMsg("");
+    if (!email) {
+      setMsg("Please enter your email first, then click Forgot password.");
+      return;
+    }
+
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setMsg(
+        "Password reset email sent. Check your inbox (and spam/junk folder)."
+      );
+    } catch (e: any) {
+      setMsg(e?.message ?? String(e));
+    }
+  }
+
+  if (loading) {
+    return <main style={{ padding: 24 }}>Loading…</main>;
   }
 
   return (
-    <main style={{ maxWidth: 520, margin: "40px auto", padding: 16 }}>
-      <h1>Login</h1>
+    <main style={{ maxWidth: 420, margin: "40px auto", padding: 16 }}>
+      <h1>GAA Attendance</h1>
 
       <label>Email</label>
       <input
+        type="email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         style={{ width: "100%", padding: 10, margin: "6px 0 14px" }}
       />
 
-<button onClick={forgotPassword} style={{ padding: "10px 14px" }}>
-  Forgot password
-</button>
-
       <label>Password</label>
       <input
         type="password"
-        value={pw}
-        onChange={(e) => setPw(e.target.value)}
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
         style={{ width: "100%", padding: 10, margin: "6px 0 14px" }}
       />
 
-      <div style={{ display: "flex", gap: 10 }}>
-        <button onClick={login} style={{ padding: "10px 14px" }}>Log in</button>
-        <button onClick={register} style={{ padding: "10px 14px" }}>Register</button>
-        <button onClick={logout} style={{ padding: "10px 14px" }}>Log out</button>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <button onClick={login} style={{ padding: "10px" }}>
+          Log in
+        </button>
+
+        <button onClick={register} style={{ padding: "10px" }}>
+          Register
+        </button>
+
+        {/* ✅ THIS IS THE FORGOT PASSWORD BUTTON */}
+        <button
+          onClick={forgotPassword}
+          style={{ padding: "10px", background: "#eee" }}
+        >
+          Forgot password
+        </button>
       </div>
 
       {msg && <p style={{ marginTop: 14 }}>{msg}</p>}
 
-      <p style={{ marginTop: 18, opacity: 0.7 }}>
-        Tip: password must be at least 6 characters (Firebase rule).
+      <p style={{ marginTop: 20, fontSize: 13, opacity: 0.7 }}>
+        If you were given a temporary password, log in once or click
+        <strong> Forgot password</strong> to set your own.
       </p>
     </main>
   );
