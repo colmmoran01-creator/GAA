@@ -8,6 +8,7 @@ import {
   onAuthStateChanged,
 } from "firebase/auth";
 import { auth } from "@/lib/firebase";
+import { Button, ButtonRow, Card, CardBody, H1, Input, Label, Muted } from "@/app/components/ui";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -15,14 +16,10 @@ export default function LoginPage() {
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(true);
 
-  // ✅ If already logged in, go straight to teams
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        window.location.href = "/teams";
-      } else {
-        setLoading(false);
-      }
+      if (user) window.location.href = "/teams";
+      else setLoading(false);
     });
     return () => unsub();
   }, []);
@@ -31,7 +28,6 @@ export default function LoginPage() {
     setMsg("");
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      // redirect handled by onAuthStateChanged
     } catch (e: any) {
       setMsg(e?.message ?? String(e));
     }
@@ -41,7 +37,6 @@ export default function LoginPage() {
     setMsg("");
     try {
       await createUserWithEmailAndPassword(auth, email, password);
-      // redirect handled by onAuthStateChanged
     } catch (e: any) {
       setMsg(e?.message ?? String(e));
     }
@@ -50,68 +45,51 @@ export default function LoginPage() {
   async function forgotPassword() {
     setMsg("");
     if (!email) {
-      setMsg("Please enter your email first, then click Forgot password.");
+      setMsg("Enter your email first, then press Forgot password.");
       return;
     }
-
     try {
       await sendPasswordResetEmail(auth, email);
-      setMsg(
-        "Password reset email sent. Check your inbox (and spam/junk folder)."
-      );
+      setMsg("Password reset email sent. Check your inbox (and spam/junk).");
     } catch (e: any) {
       setMsg(e?.message ?? String(e));
     }
   }
 
-  if (loading) {
-    return <main style={{ padding: 24 }}>Loading…</main>;
-  }
+  if (loading) return <div className="py-10 text-sm text-neutral-600">Loading…</div>;
 
   return (
-    <main style={{ maxWidth: 420, margin: "40px auto", padding: 16 }}>
-      <h1>GAA Attendance</h1>
+    <div className="py-6">
+      <Card>
+        <CardBody>
+          <H1>GAA Attendance</H1>
+          <Muted className="mt-1">Log in to manage teams, events and attendance.</Muted>
 
-      <label>Email</label>
-      <input
-        type="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        style={{ width: "100%", padding: 10, margin: "6px 0 14px" }}
-      />
+          <div className="mt-5 space-y-3">
+            <div>
+              <Label>Email</Label>
+              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com" />
+            </div>
 
-      <label>Password</label>
-      <input
-        type="password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        style={{ width: "100%", padding: 10, margin: "6px 0 14px" }}
-      />
+            <div>
+              <Label>Password</Label>
+              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+            </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <button onClick={login} style={{ padding: "10px" }}>
-          Log in
-        </button>
+            <ButtonRow>
+              <Button onClick={login}>Log in</Button>
+              <Button variant="secondary" onClick={register}>Register</Button>
+              <Button variant="secondary" onClick={forgotPassword}>Forgot password</Button>
+            </ButtonRow>
 
-        <button onClick={register} style={{ padding: "10px" }}>
-          Register
-        </button>
+            {msg && <div className="rounded-xl bg-neutral-100 p-3 text-sm text-neutral-800">{msg}</div>}
 
-        {/* ✅ THIS IS THE FORGOT PASSWORD BUTTON */}
-        <button
-          onClick={forgotPassword}
-          style={{ padding: "10px", background: "#eee" }}
-        >
-          Forgot password
-        </button>
-      </div>
-
-      {msg && <p style={{ marginTop: 14 }}>{msg}</p>}
-
-      <p style={{ marginTop: 20, fontSize: 13, opacity: 0.7 }}>
-        If you were given a temporary password, log in once or click
-        <strong> Forgot password</strong> to set your own.
-      </p>
-    </main>
+            <div className="pt-2 text-xs text-neutral-500">
+              Tip: If you were given a temporary password, use <strong>Forgot password</strong> to set your own.
+            </div>
+          </div>
+        </CardBody>
+      </Card>
+    </div>
   );
 }
