@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import Link from "next/link";
 import { db } from "@/lib/firebase";
-import AppShell from "../components/AppShell";
+import AppShell from "../../components/AppShell";
 
 type Player = { id: string; name: string };
 
