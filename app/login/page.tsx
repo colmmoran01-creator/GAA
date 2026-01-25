@@ -1,5 +1,6 @@
 "use client";
 
+import { sendPasswordResetEmail } from "firebase/auth";
 import { useEffect, useState } from "react";
 import { createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
@@ -26,6 +27,21 @@ export default function LoginPage() {
     }
   }
 
+async function forgotPassword() {
+  setMsg("");
+  try {
+    if (!email) {
+      setMsg("Enter your email first, then press Forgot password.");
+      return;
+    }
+    await sendPasswordResetEmail(auth, email);
+    setMsg("Password reset email sent. Check your inbox (and spam/junk).");
+  } catch (e: any) {
+    console.error(e);
+    setMsg(e?.message ?? String(e));
+  }
+}
+
   async function register() {
     setMsg("");
     try {
@@ -51,6 +67,10 @@ export default function LoginPage() {
         onChange={(e) => setEmail(e.target.value)}
         style={{ width: "100%", padding: 10, margin: "6px 0 14px" }}
       />
+
+<button onClick={forgotPassword} style={{ padding: "10px 14px" }}>
+  Forgot password
+</button>
 
       <label>Password</label>
       <input
