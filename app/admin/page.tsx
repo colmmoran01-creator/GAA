@@ -14,6 +14,8 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import * as XLSX from "xlsx";
+import AppShell from "@/app/components/AppShell";
+
 
 type Team = { id: string; name: string; season?: string };
 
@@ -367,26 +369,41 @@ export default function AdminPage() {
     URL.revokeObjectURL(url);
   }
 
-  if (loading) return <main style={{ padding: 16 }}>Loading…</main>;
-
+  if (loading) {
   return (
-    <main style={{ maxWidth: 900, margin: "24px auto", padding: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <h1 style={{ margin: 0 }}>Admin</h1>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <Link href="/teams">← Teams</Link>
-          <span style={{ fontSize: 12, opacity: 0.7 }}>UID: {uid}</span>
+    <AppShell title="Admin" showNav={false}>
+      <div className="py-10 text-sm text-neutral-600">Loading…</div>
+    </AppShell>
+  );
+}
+
+return (
+  <AppShell title="Admin">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-lg font-semibold">Admin</h1>
+        <div className="flex items-center gap-3">
+          <Link href="/teams" className="text-sm font-semibold underline-offset-4 hover:underline">
+            ← Teams
+          </Link>
+          <span className="text-xs text-neutral-500">UID: {uid}</span>
         </div>
       </div>
 
-      {msg && <p style={{ marginTop: 12 }}>{msg}</p>}
+      {msg && (
+        <div className="rounded-xl bg-neutral-100 p-3 text-sm text-neutral-800">
+          {msg}
+        </div>
+      )}
 
-      <div style={{ marginTop: 14, padding: 12, border: "1px solid #ddd", borderRadius: 10 }}>
-        <label style={{ display: "block", marginBottom: 6 }}>Team</label>
+      <div className="rounded-2xl border border-neutral-200 bg-white p-4 sm:p-6">
+        <label className="block text-sm font-medium text-neutral-700 mb-1">
+          Team
+        </label>
         <select
           value={teamId}
           onChange={(e) => setTeamId(e.target.value)}
-          style={{ width: "100%", padding: 10 }}
+          className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-neutral-900 focus:ring-2 focus:ring-neutral-200"
         >
           {teams.map((t) => (
             <option key={t.id} value={t.id}>
@@ -395,27 +412,30 @@ export default function AdminPage() {
           ))}
         </select>
 
-        <div style={{ display: "flex", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
-          <button onClick={exportExcel} style={{ padding: "10px 14px" }}>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button
+            onClick={exportExcel}
+            className="rounded-xl bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-neutral-800"
+          >
             Export Excel (.xlsx)
           </button>
 
-          <div style={{ fontSize: 13, opacity: 0.75, alignSelf: "center" }}>
-            Exports 2 tabs: Attendance Matrix + Reasons Missing
-          </div>
+          <span className="text-sm text-neutral-500">
+            2 tabs: Attendance Matrix + Reasons Missing
+          </span>
         </div>
 
-        <div style={{ marginTop: 10, fontSize: 13, opacity: 0.8 }}>
-          Events: <strong>{events.length}</strong> • Players: <strong>{players.length}</strong> • Attendance records:{" "}
+        <div className="mt-3 text-sm text-neutral-600">
+          Events: <strong>{events.length}</strong> • Players:{" "}
+          <strong>{players.length}</strong> • Attendance records:{" "}
           <strong>{attendance.length}</strong>
         </div>
       </div>
 
-      <div style={{ marginTop: 16, fontSize: 13, opacity: 0.8 }}>
-        <p style={{ margin: 0 }}>
-          Tip: Venue is taken from the event’s <code>venue</code> field (Maryland/Tang/Other text).
-        </p>
+      <div className="text-sm text-neutral-500">
+        Tip: Venue is taken from the event’s <code>venue</code> field (Maryland / Tang / Other).
       </div>
-    </main>
-  );
-}
+    </div>
+  </AppShell>
+);
+
