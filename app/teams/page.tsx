@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 
@@ -12,10 +12,10 @@ export default function TeamsPage() {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
   const [teams, setTeams] = useState<Team[]>([]);
-  const [uid, setUid] = useState<string>("");
+  const [uid, setUid] = useState("");
 
   useEffect(() => {
-    // ✅ IMPORTANT: cleanup return must be here, not inside the callback
+    // Subscribe to auth changes
     const unsub = onAuthStateChanged(auth, (user) => {
       if (!user) {
         window.location.href = "/login";
@@ -24,6 +24,7 @@ export default function TeamsPage() {
 
       setUid(user.uid);
 
+      // Load teams for this UID (admin OR coach)
       (async () => {
         try {
           setLoading(true);
@@ -69,11 +70,14 @@ export default function TeamsPage() {
       })();
     });
 
-    return () => unsub();
+    // ✅ Cleanup must be returned from useEffect (and ONLY here)
+    return () => {
+      unsub();
+    };
   }, []);
 
   async function logout() {
-    await auth.signOut();
+    await signOut(auth);
     window.location.href = "/";
   }
 
@@ -101,18 +105,16 @@ export default function TeamsPage() {
       >
         <strong>Your User ID (UID)</strong>
         <div style={{ wordBreak: "break-all", marginTop: 4 }}>{uid}</div>
-        <p style={{ margin: "6px 0 0", opacity: 0.7 }}>
-          Add this UID to <code>adminUids</code> or <code>coachUids</code> in the
-          team document.
-        </p>
+        <div style={{ marginTop: 6, opacity: 0.7 }}>
+          Add this UID to <code>adminUids</code> or <code>coachUids</code> in the team document.
+        </div>
       </div>
 
       {msg && <p style={{ marginTop: 12 }}>{msg}</p>}
 
       {teams.length === 0 ? (
         <p style={{ marginTop: 16 }}>
-          No teams found for your user yet. Once your UID is added to a team,
-          it will appear here automatically.
+          No teams found for your user yet. Once your UID is added to a team, it will appear here automatically.
         </p>
       ) : (
         <ul style={{ marginTop: 16, paddingLeft: 18 }}>
@@ -121,9 +123,7 @@ export default function TeamsPage() {
               <Link href={`/team/${t.id}`} style={{ fontWeight: 700 }}>
                 {t.name}
               </Link>
-              {t.season ? (
-                <span style={{ opacity: 0.7 }}> — Season {t.season}</span>
-              ) : null}
+              {t.season ? <span style={{ opacity: 0.7 }}> — Season {t.season}</span> : null}
             </li>
           ))}
         </ul>
@@ -132,36 +132,6 @@ export default function TeamsPage() {
       <div style={{ marginTop: 18 }}>
         <Link href="/admin">Admin Reports</Link>
       </div>
-    </main>
-  );
-}
-
-
-    return () => unsub();
-  }, []);
-
-  if (loading) return <main style={{ padding: 16 }}>Loading teams…</main>;
-
-  return (
-    <main style={{ maxWidth: 720, margin: "24px auto", padding: 16 }}>
-      <h1>Your Teams</h1>
-      {msg && <p>{msg}</p>}
-
-      {teams.length === 0 ? (
-        <p>No teams found for your user. Ask admin to add your UID (or we’ll switch to email invites).</p>
-      ) : (
-        <ul>
-          {teams.map((t) => (
-            <li key={t.id} style={{ marginBottom: 10 }}>
-              <Link href={`/team/${t.id}`}>{t.name} (Season {t.season})</Link>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <p style={{ marginTop: 20 }}>
-        <Link href="/admin">Admin Reports</Link>
-      </p>
     </main>
   );
 }
