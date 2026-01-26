@@ -1,20 +1,28 @@
 "use client";
 
 import { useEffect } from "react";
-import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { useRouter } from "next/navigation";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
+import { app } from "@/lib/firebase";
 
 export default function HomePage() {
+  const router = useRouter();
+
   useEffect(() => {
+    const auth = getAuth(app);
     const unsub = onAuthStateChanged(auth, (user) => {
       if (user) {
-        window.location.href = "/teams";
+        router.replace("/teams");
       } else {
-        window.location.href = "/login";
+        router.replace("/login");
       }
     });
     return () => unsub();
-  }, []);
+  }, [router]);
 
-  return <main style={{ padding: 24 }}>Loading…</main>;
+  return (
+    <main className="flex min-h-dvh items-center justify-center text-sm text-neutral-600">
+      Loading…
+    </main>
+  );
 }
