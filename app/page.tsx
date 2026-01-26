@@ -3,12 +3,13 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
+import "@/lib/firebase"; // IMPORTANT: ensures firebase initializeApp runs
 
 export default function HomePage() {
   const router = useRouter();
 
   useEffect(() => {
-    const auth = getAuth(); // uses default firebase app
+    const auth = getAuth();
     const unsub = onAuthStateChanged(auth, (user) => {
       router.replace(user ? "/teams" : "/login");
     });
