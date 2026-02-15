@@ -7,10 +7,7 @@ import { collection, getDocs, query, where } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import AppShell from "../components/AppShell";
 
-type Team = {
-  id: string;
-  name: string;
-};
+type Team = { id: string; name: string; coachNames?: string[] };
 
 const ROYAL = "#1E3A8A";
 const MAROON = "#7A0019";
