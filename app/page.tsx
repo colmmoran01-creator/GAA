@@ -66,7 +66,7 @@ export default function HomePage() {
     <AppShell title="Club Hub" showTopNav={true}>
       <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
         {/* Sidebar */}
-        <aside className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+        <aside className="order-2 rounded-2xl border border-neutral-200 bg-white shadow-sm lg:order-1">
           <div className="border-b border-neutral-100 px-4 py-3">
             <div className="text-sm font-semibold text-neutral-900">Teams</div>
             <div className="mt-1 text-xs text-neutral-500">
@@ -106,7 +106,7 @@ export default function HomePage() {
         </aside>
 
         {/* Main content */}
-        <section className="grid gap-4">
+        <section className="order-1 grid gap-4 lg:order-2">
           {/* Club Ethos */}
           <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
             <div className="text-sm font-semibold text-neutral-900">Club Ethos</div>
