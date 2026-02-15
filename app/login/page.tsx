@@ -18,7 +18,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
-      if (user) window.location.href = "/teams";
+      if (user) window.location.href = "/";
       else setLoading(false);
     });
     return () => unsub();
