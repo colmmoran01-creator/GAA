@@ -6,6 +6,9 @@ import { useParams } from "next/navigation";
 import {
   addDoc,
   collection,
+  deleteDoc,
+  doc,
+  getDoc,
   getDocs,
   query,
   where,
@@ -15,94 +18,106 @@ import AppShell from "../../../components/AppShell";
 
 type Player = { id: string; name: string };
 
-const MAROON = "#7A0019";
-const ROYAL = "#1E3A8A";
-
 function normalizeName(s: string) {
-  return s.trim().replace(/\s+/g, " ");
+  return s
+    .replace(/\s+/g, " ")
+    .replace(/\u00A0/g, " ")
+    .trim();
 }
 
-export default function ImportPlayersPage() {
+export default function PlayerManagementPage() {
   const params = useParams();
   const teamId = typeof params.teamId === "string" ? params.teamId : "";
 
-  const [existing, setExisting] = useState<Player[]>([]);
+  const [teamName, setTeamName] = useState<string>("Team");
   const [loading, setLoading] = useState(true);
-  const [msg, setMsg] = useState("");
+  const [msg, setMsg] = useState<string>("");
+  const [err, setErr] = useState<string>("");
 
-  const [text, setText] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [paste, setPaste] = useState<string>("");
 
-  // Load existing players for this team (so we can skip duplicates)
+  const [removingId, setRemovingId] = useState<string>("");
+
   useEffect(() => {
     (async () => {
       try {
-        if (!teamId) {
-          setMsg("Missing teamId. Go back to Teams and reopen the team.");
-          setLoading(false);
-          return;
-        }
         setLoading(true);
+        setErr("");
         setMsg("");
 
-        const q = query(collection(db, "players"), where("teamId", "==", teamId));
-        const snap = await getDocs(q);
+        if (!teamId) {
+          setErr("Missing teamId in URL. Go back to Teams and reopen the team.");
+          return;
+        }
+
+        const teamSnap = await getDoc(doc(db, "teams", teamId));
+        if (teamSnap.exists()) {
+          const data = teamSnap.data() as any;
+          setTeamName(data?.name ?? teamId);
+        } else {
+          setTeamName(teamId);
+        }
+
+        const qPlayers = query(collection(db, "players"), where("teamId", "==", teamId));
+        const snap = await getDocs(qPlayers);
+
         const list: Player[] = [];
         snap.forEach((d) => list.push({ id: d.id, ...(d.data() as any) }));
-        list.sort((a, b) => a.name.localeCompare(b.name));
-        setExisting(list);
+        list.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+        setPlayers(list);
       } catch (e: any) {
         console.error(e);
-        setMsg(e?.message ?? String(e));
+        setErr(e?.message ?? String(e));
       } finally {
         setLoading(false);
       }
     })();
   }, [teamId]);
 
-  const existingSet = useMemo(() => {
-    return new Set(existing.map((p) => normalizeName(p.name).toLowerCase()));
-  }, [existing]);
+  const existingLower = useMemo(() => {
+    const set = new Set<string>();
+    players.forEach((p) => set.add((p.name ?? "").toLowerCase()));
+    return set;
+  }, [players]);
 
-  const parsedNames = useMemo(() => {
-    // Accept: pasted Excel column, CSV, or newline-separated
-    const raw = text
-      .split(/\r?\n|,|\t/g)
-      .map((s) => normalizeName(s))
+  const parsed = useMemo(() => {
+    // Accept: pasted Excel column, CSV, or newline list
+    const raw = paste
+      .split(/\r?\n|,|;/g)
+      .map((x) => normalizeName(x))
       .filter(Boolean);
 
-    // De-dupe within paste
+    // de-dup in the pasted input (case-insensitive)
     const seen = new Set<string>();
-    const unique: string[] = [];
+    const out: string[] = [];
     for (const n of raw) {
       const key = n.toLowerCase();
       if (!seen.has(key)) {
         seen.add(key);
-        unique.push(n);
+        out.push(n);
       }
     }
-    return unique;
-  }, [text]);
+    return out;
+  }, [paste]);
 
-  const { toAdd, alreadyThere } = useMemo(() => {
-    const add: string[] = [];
-    const exists: string[] = [];
-    for (const n of parsedNames) {
-      if (existingSet.has(n.toLowerCase())) exists.push(n);
-      else add.push(n);
-    }
-    return { toAdd: add, alreadyThere: exists };
-  }, [parsedNames, existingSet]);
+  const toAdd = useMemo(() => {
+    // Only names not already in Firestore list
+    return parsed.filter((n) => !existingLower.has(n.toLowerCase()));
+  }, [parsed, existingLower]);
 
-  async function importNow() {
-    setMsg("");
-    if (!teamId) return setMsg("Missing teamId.");
-    if (toAdd.length === 0) return setMsg("Nothing new to import.");
-
+  async function addPlayers() {
     try {
-      setSaving(true);
+      setErr("");
+      setMsg("");
 
-      // Create new player docs
+      if (!teamId) return;
+      if (toAdd.length === 0) {
+        setMsg("Nothing new to add (all names already exist).");
+        return;
+      }
+
+      // Add as individual player docs for this team
       for (const name of toAdd) {
         await addDoc(collection(db, "players"), {
           teamId,
@@ -111,131 +126,126 @@ export default function ImportPlayersPage() {
         });
       }
 
-      setMsg(`Imported ${toAdd.length} player(s).`);
-
-      // refresh list
-      const q = query(collection(db, "players"), where("teamId", "==", teamId));
-      const snap = await getDocs(q);
+      // Reload list
+      const qPlayers = query(collection(db, "players"), where("teamId", "==", teamId));
+      const snap = await getDocs(qPlayers);
       const list: Player[] = [];
       snap.forEach((d) => list.push({ id: d.id, ...(d.data() as any) }));
-      list.sort((a, b) => a.name.localeCompare(b.name));
-      setExisting(list);
+      list.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+      setPlayers(list);
 
-      setText("");
+      setPaste("");
+      setMsg(`Added ${toAdd.length} player(s).`);
     } catch (e: any) {
       console.error(e);
-      setMsg(e?.message ?? String(e));
+      setErr(e?.message ?? String(e));
+    }
+  }
+
+  async function removePlayer(playerId: string, playerName: string) {
+    try {
+      setErr("");
+      setMsg("");
+      setRemovingId(playerId);
+
+      const ok = confirm(`Remove player:\n\n${playerName}\n\nThis does NOT delete past attendance records, but they may show as "Unknown player" in old reports unless we handle that later.`);
+      if (!ok) return;
+
+      await deleteDoc(doc(db, "players", playerId));
+      setPlayers((prev) => prev.filter((p) => p.id !== playerId));
+      setMsg(`Removed ${playerName}.`);
+    } catch (e: any) {
+      console.error(e);
+      setErr(e?.message ?? String(e));
     } finally {
-      setSaving(false);
+      setRemovingId("");
     }
   }
 
   return (
-    <AppShell title="Import Players">
-      <div className="mb-4">
-        <Link
-          href={`/team/${teamId}`}
-          className="text-sm font-semibold underline-offset-4 hover:underline"
-        >
-          ← Back to Team
-        </Link>
-      </div>
-
-      <div className="rounded-2xl border border-neutral-200 bg-white p-4 sm:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+    <AppShell title="Player Management">
+      <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
           <div>
-            <h1 className="text-lg font-semibold">Bulk import players</h1>
-            <div className="mt-1 text-sm text-neutral-600">
-              Paste a column from Excel (one name per row). Commas and tabs also work.
+            <h1 className="text-xl font-semibold text-neutral-900">Player Management</h1>
+            <p className="mt-1 text-sm text-neutral-600">
+              Team: <span className="font-medium text-neutral-900">{teamName}</span>
+            </p>
+            <p className="mt-1 text-xs text-neutral-500">
+              Team ID: <span className="font-mono">{teamId}</span>
+            </p>
+          </div>
+
+          <Link
+            href={`/team/${teamId}`}
+            className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 shadow-sm hover:bg-neutral-50"
+          >
+            ← Team
+          </Link>
+        </div>
+
+        {msg && <div className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{msg}</div>}
+        {err && <div className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{err}</div>}
+
+        <div className="mt-4 grid gap-3">
+          <div>
+            <label className="block text-sm font-medium text-neutral-800">Paste players</label>
+            <p className="mt-1 text-xs text-neutral-500">
+              Paste from Excel (one column), or comma/newline-separated. We’ll de-duplicate and ignore existing names.
+            </p>
+
+            <textarea
+              value={paste}
+              onChange={(e) => setPaste(e.target.value)}
+              rows={6}
+              className="mt-2 w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900/10"
+              placeholder={`Example:\nAoife Smith\nConor Kelly\n...`}
+            />
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                onClick={addPlayers}
+                className="rounded-full bg-[#1E3A8A] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-50"
+                disabled={!teamId || loading || toAdd.length === 0}
+              >
+                ➕ Add {toAdd.length > 0 ? `(${toAdd.length})` : ""}
+              </button>
+
+              <div className="text-xs text-neutral-500">
+                Current players: <span className="font-medium text-neutral-800">{players.length}</span>
+                {" • "}
+                New from paste: <span className="font-medium text-neutral-800">{toAdd.length}</span>
+              </div>
             </div>
           </div>
-          <span
-            className="rounded-full px-3 py-1 text-xs font-semibold text-white"
-            style={{ backgroundColor: ROYAL }}
-          >
-            Team
-          </span>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-neutral-200 bg-white shadow-sm">
+        <div className="border-b border-neutral-100 px-4 py-3">
+          <h2 className="text-sm font-semibold text-neutral-900">Current players</h2>
         </div>
 
         {loading ? (
-          <div className="py-8 text-sm text-neutral-600">Loading existing players…</div>
+          <div className="p-4 text-sm text-neutral-600">Loading…</div>
+        ) : players.length === 0 ? (
+          <div className="p-4 text-sm text-neutral-600">No players yet.</div>
         ) : (
-          <>
-            <div className="mt-4">
-              <label className="block text-sm font-medium text-neutral-700 mb-1">
-                Paste names
-              </label>
-              <textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                rows={8}
-                placeholder={"John Smith\nMary Moran\n…"}
-                className="w-full rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-neutral-900 focus:ring-2 focus:ring-neutral-200"
-              />
-              <div className="mt-2 text-xs text-neutral-500">
-                Preview: <strong>{parsedNames.length}</strong> unique name(s) detected.
-              </div>
-            </div>
+          <ul className="divide-y divide-neutral-100">
+            {players.map((p) => (
+              <li key={p.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                <span className="text-sm font-medium text-neutral-900">{p.name}</span>
 
-            <div className="mt-4 rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
-              <div className="text-sm">
-                New to add: <strong>{toAdd.length}</strong>{" "}
-                {alreadyThere.length > 0 && (
-                  <>
-                    • Already in team: <strong>{alreadyThere.length}</strong>
-                  </>
-                )}
-              </div>
-
-              {alreadyThere.length > 0 && (
-                <div className="mt-2 text-xs text-neutral-600">
-                  Already in team (skipped): {alreadyThere.slice(0, 12).join(", ")}
-                  {alreadyThere.length > 12 ? "…" : ""}
-                </div>
-              )}
-            </div>
-
-            {msg && (
-              <div className="mt-4 rounded-2xl border border-neutral-200 bg-white p-3 text-sm text-neutral-800">
-                {msg}
-              </div>
-            )}
-
-            <div className="mt-4 grid gap-2 sm:grid-cols-2">
-              <Link
-                href={`/team/${teamId}`}
-                className="rounded-xl bg-neutral-100 px-4 py-2.5 text-center text-sm font-semibold text-neutral-900 hover:bg-neutral-200"
-              >
-                Cancel
-              </Link>
-
-              <button
-                onClick={importNow}
-                disabled={saving || toAdd.length === 0}
-                className="rounded-xl px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-                style={{ backgroundColor: MAROON }}
-              >
-                {saving ? "Importing…" : `Import ${toAdd.length}`}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-
-      <div className="mt-4 rounded-2xl border border-neutral-200 bg-white p-4">
-        <div className="text-sm font-semibold">Current players</div>
-        <div className="mt-2 text-sm text-neutral-600">
-          Total: <strong>{existing.length}</strong>
-        </div>
-
-        {existing.length > 0 && (
-          <div className="mt-3 rounded-2xl border border-neutral-200 bg-white divide-y">
-            {existing.map((p) => (
-              <div key={p.id} className="px-4 py-3 text-sm">
-                {p.name}
-              </div>
+                <button
+                  onClick={() => removePlayer(p.id, p.name)}
+                  className="rounded-full bg-[#7A0019] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-50"
+                  disabled={removingId === p.id}
+                >
+                  {removingId === p.id ? "Removing…" : "Remove"}
+                </button>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </div>
     </AppShell>

@@ -1,161 +1,120 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDocs,
-  query,
-  where,
-} from "firebase/firestore";
 import Link from "next/link";
+import { useParams } from "next/navigation";
+import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import AppShell from "../../components/AppShell";
 
 type Player = { id: string; name: string };
 
-const MAROON = "#7A0019";
-const ROYAL = "#1E3A8A";
-
 export default function TeamPage() {
   const params = useParams();
   const teamId = typeof params.teamId === "string" ? params.teamId : "";
 
+  const [teamName, setTeamName] = useState<string>("Team");
+  const [coachNames, setCoachNames] = useState<string[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [msg, setMsg] = useState("");
-  const [deletingId, setDeletingId] = useState<string>("");
-
-  async function loadPlayers() {
-    try {
-      setError("");
-      setMsg("");
-
-      if (!teamId) {
-        setError("Missing teamId from URL. Go back to Teams and reopen the team.");
-        setLoading(false);
-        return;
-      }
-
-      const q = query(collection(db, "players"), where("teamId", "==", teamId));
-      const snap = await getDocs(q);
-      const list: Player[] = [];
-      snap.forEach((d) => list.push({ id: d.id, ...(d.data() as any) }));
-      list.sort((a, b) => a.name.localeCompare(b.name));
-      setPlayers(list);
-    } catch (e: any) {
-      console.error(e);
-      setError(e?.message ?? String(e));
-    } finally {
-      setLoading(false);
-    }
-  }
 
   useEffect(() => {
-    loadPlayers();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    (async () => {
+      try {
+        setLoading(true);
+        setError("");
+
+        if (!teamId) {
+          setError("Missing teamId from URL. Go back to /teams and reopen the team.");
+          return;
+        }
+
+        // Team info
+        const teamSnap = await getDoc(doc(db, "teams", teamId));
+        if (teamSnap.exists()) {
+          const data = teamSnap.data() as any;
+          setTeamName(data?.name ?? teamId);
+          setCoachNames(Array.isArray(data?.coachNames) ? data.coachNames : []);
+        } else {
+          setTeamName(teamId);
+          setCoachNames([]);
+        }
+
+        // Players
+        const q = query(collection(db, "players"), where("teamId", "==", teamId));
+        const snap = await getDocs(q);
+
+        const list: Player[] = [];
+        snap.forEach((d) => list.push({ id: d.id, ...(d.data() as any) }));
+        list.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+        setPlayers(list);
+      } catch (e: any) {
+        console.error(e);
+        setError(e?.message ?? String(e));
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, [teamId]);
 
-  async function removePlayer(p: Player) {
-    setMsg("");
-    setError("");
-
-    const ok = window.confirm(`Remove ${p.name} from this team?\n\nThis will delete the player record.`);
-    if (!ok) return;
-
-    try {
-      setDeletingId(p.id);
-
-      // Delete player doc
-      await deleteDoc(doc(db, "players", p.id));
-
-      // Update UI immediately
-      setPlayers((prev) => prev.filter((x) => x.id !== p.id));
-      setMsg(`Removed: ${p.name}`);
-    } catch (e: any) {
-      console.error(e);
-      setError(e?.message ?? String(e));
-    } finally {
-      setDeletingId("");
-    }
-  }
-
   return (
-    <AppShell title="Team">
-      {/* TEAM HEADER */}
-      <div className="mb-4 rounded-2xl border border-neutral-200 bg-white p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+    <AppShell title={teamName}>
+      <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
           <div>
-            <h1 className="text-lg font-semibold">Team</h1>
-            <div className="mt-1 text-xs text-neutral-500">
-              Team ID: <code className="font-mono">{teamId}</code>
-            </div>
+            <h1 className="text-xl font-semibold text-neutral-900">{teamName}</h1>
+
+            {coachNames.length > 0 && (
+              <p className="mt-1 text-sm text-neutral-600">
+                Coaches: <span className="font-medium text-neutral-800">{coachNames.join(", ")}</span>
+              </p>
+            )}
+
+            <p className="mt-1 text-xs text-neutral-500">
+              Team ID: <span className="font-mono">{teamId}</span>
+            </p>
           </div>
 
-          <div className="flex gap-2">
-            <Link
-              href={`/team/${teamId}/new`}
-              className="rounded-xl px-4 py-2 text-sm font-semibold text-white"
-              style={{ backgroundColor: ROYAL }}
-            >
-              ➕ New Event
-            </Link>
+          <Link
+            href="/teams"
+            className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 shadow-sm hover:bg-neutral-50"
+          >
+            ← Teams
+          </Link>
+        </div>
 
-            <Link
-              href={`/team/${teamId}/import-players`}
-              className="rounded-xl px-4 py-2 text-sm font-semibold text-white"
-              style={{ backgroundColor: MAROON }}
-            >
-              📥 Import
-            </Link>
-          </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link
+            href={`/team/${teamId}/new`}
+            className="rounded-full bg-[#1E3A8A] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
+          >
+            ➕ New Event
+          </Link>
+
+          <Link
+            href={`/team/${teamId}/import-players`}
+            className="rounded-full bg-[#7A0019] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
+          >
+            👥 Player Management
+          </Link>
         </div>
       </div>
 
-      {msg && (
-        <div className="mb-3 rounded-2xl border border-neutral-200 bg-white p-3 text-sm text-neutral-800">
-          {msg}
-        </div>
-      )}
+      <div className="mt-4 rounded-2xl border border-neutral-200 bg-white shadow-sm">
+        {loading && <div className="p-4 text-sm text-neutral-600">Loading players…</div>}
+        {!loading && error && <div className="p-4 text-sm text-red-700">{error}</div>}
 
-      {loading && <div className="py-10 text-sm text-neutral-600">Loading players…</div>}
-
-      {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-          {error}
-        </div>
-      )}
-
-      {!loading && !error && players.length === 0 && (
-        <div className="rounded-2xl border border-neutral-200 bg-white p-4 text-sm text-neutral-700">
-          No players found for this team.
-        </div>
-      )}
-
-      {!loading && players.length > 0 && (
-        <div className="rounded-2xl border border-neutral-200 bg-white divide-y">
-          {players.map((p) => (
-            <div
-              key={p.id}
-              className="flex items-center justify-between gap-3 px-4 py-3"
-            >
-              <div className="text-sm font-medium">{p.name}</div>
-
-              <button
-                onClick={() => removePlayer(p)}
-                disabled={deletingId === p.id}
-                className="rounded-xl px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
-                style={{ backgroundColor: MAROON }}
-              >
-                {deletingId === p.id ? "Removing…" : "Remove"}
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+        {!loading && !error && (
+          <ul className="divide-y divide-neutral-100">
+            {players.map((p) => (
+              <li key={p.id} className="flex items-center justify-between px-4 py-3">
+                <span className="text-sm font-medium text-neutral-900">{p.name}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </AppShell>
   );
 }
