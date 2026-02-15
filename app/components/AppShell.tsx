@@ -1,84 +1,85 @@
 "use client";
 
+import { ReactNode } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import BottomNav from "./BottomNav";
+import { useRouter, usePathname } from "next/navigation";
+import { getAuth, signOut } from "firebase/auth";
 
-const MAROON = "#7A0019";
-const ROYAL = "#1E3A8A";
-
-function NavLink({ href, label }: { href: string; label: string }) {
-  const path = usePathname();
-  const active = path === href || path.startsWith(href + "/");
-
-  return (
-    <Link
-      href={href}
-      className={[
-        "rounded-xl px-3 py-2 text-sm font-semibold transition",
-        active ? "text-white" : "text-neutral-700 hover:bg-neutral-100",
-      ].join(" ")}
-      style={active ? { backgroundColor: ROYAL } : undefined}
-    >
-      {label}
-    </Link>
-  );
-}
+type Props = {
+  title: string;
+  children: ReactNode;
+  showTopNav?: boolean;
+};
 
 export default function AppShell({
   title,
   children,
   showTopNav = true,
-}: {
-  title: string;
-  children: React.ReactNode;
-  showTopNav?: boolean;
-}) {
-  return (
-    <div className="min-h-dvh bg-neutral-50">
-      <header className="sticky top-0 z-10 border-b border-neutral-200 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-3">
-            {/* Logo */}
-            <img
-              src="/club-logo.png"
-              alt="Club logo"
-              className="h-9 w-9 rounded-2xl object-contain bg-white ring-1 ring-neutral-200"
-            />
+}: Props) {
+  const router = useRouter();
+  const pathname = usePathname();
 
-            <div>
-              <div className="text-sm font-semibold leading-tight">{title}</div>
-              <div className="text-xs text-neutral-500 leading-tight">
-                Attendance & Matches
+  async function handleLogout() {
+    const auth = getAuth();
+    await signOut(auth);
+    router.replace("/login");
+  }
+
+  return (
+    <div className="min-h-screen bg-neutral-100">
+      {/* HEADER */}
+      <header className="bg-gradient-to-r from-[#7A0019] to-[#1E3A8A] text-white shadow-md">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
+          {/* Logo / Title */}
+          <div className="flex items-center gap-3">
+            <Link href="/" className="flex items-center gap-2">
+              <div className="text-lg font-bold tracking-wide">
+                {title}
               </div>
-            </div>
+            </Link>
           </div>
 
-          <div className="hidden sm:flex items-center gap-2">
-            <span
-              className="rounded-full px-3 py-1 text-xs font-semibold text-white"
-              style={{ backgroundColor: ROYAL }}
+          {/* Actions */}
+          <div className="flex items-center gap-2">
+            {pathname !== "/" && (
+              <Link
+                href="/"
+                className="rounded-full bg-white/20 px-3 py-2 text-lg transition hover:bg-white/30"
+                title="Home"
+              >
+                🏠
+              </Link>
+            )}
+
+            <button
+              onClick={handleLogout}
+              className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-neutral-900 shadow-sm hover:bg-neutral-100"
             >
-              Club Tools
-            </span>
+              Logout
+            </button>
           </div>
         </div>
 
+        {/* Optional top nav */}
         {showTopNav && (
-          <nav className="mx-auto hidden max-w-3xl px-4 pb-3 sm:block">
-            <div className="flex gap-2">
-              <NavLink href="/teams" label="Teams" />
-              <NavLink href="/admin" label="Admin" />
-            </div>
+          <nav className="mx-auto flex max-w-6xl gap-4 px-4 pb-3 text-sm">
+            <Link href="/teams" className="hover:underline">
+              Teams
+            </Link>
+            <Link href="/admin" className="hover:underline">
+              Admin
+            </Link>
+            <Link href="/contacts" className="hover:underline">
+              Contacts
+            </Link>
           </nav>
         )}
       </header>
 
-      {/* Padding-bottom so content doesn't sit behind bottom nav */}
-      <main className="mx-auto max-w-3xl px-4 py-4 pb-28">{children}</main>
-
-      {/* Mobile bottom nav */}
-      <BottomNav />
+      {/* PAGE CONTENT */}
+      <main className="mx-auto max-w-6xl px-4 py-6">
+        {children}
+      </main>
     </div>
   );
 }

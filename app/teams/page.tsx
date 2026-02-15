@@ -93,9 +93,24 @@ export default function TeamsPage() {
             >
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-base font-semibold">{t.name}</div>
-                  <div className="mt-1 text-sm text-neutral-600">Tap to view players & events</div>
-                </div>
+  <div className="text-base font-semibold text-neutral-900">
+    {t.name}
+  </div>
+
+  <div className="mt-1 text-sm text-neutral-600">
+    Tap to view players & events
+  </div>
+
+  {t.coachNames && t.coachNames.length > 0 && (
+    <div className="mt-1 text-xs text-neutral-500">
+      Coaches:{" "}
+      <span className="font-medium text-neutral-700">
+        {t.coachNames.join(", ")}
+      </span>
+    </div>
+  )}
+</div>
+
 
                 <div className="flex items-center gap-2">
                   <span
