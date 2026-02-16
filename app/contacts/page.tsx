@@ -10,6 +10,8 @@ const CONTACTS: Contact[] = [
   { role: "Secretary", name: "Colm Moran", phone: "087 205 3648", email: "Secretarybng.marylandtang.westmeath@gaa.ie" },
   { role: "Treasurer", name: "Ciaran McLoughlin", phone: "087 983 4001", email: "treasurer.marylandtang.westmeath@gaa.ie" },
   { role: "PRO", name: "Marise O'Toole", phone: "086 176 8500", email: "pro.marylandtang.westmeath@gmail.com" },
+  { role: "Child Protection Officer (Maryland)", name: "Donal Hogan", phone: "086 157 5593", email: "" },
+  { role: "Child Protection Officer (Tang)", name: "Michael Bannon", phone: "086 102 5244", email: "" },
   { role: "Coaching Officer (Maryland)", name: "Aidan Reynolds", phone: "087 905 2468", email: "" },
   { role: "Coaching Officer (Tang)", name: "", phone: "", email: "" },
   { role: "Pitch Co-ordinator (Maryland)", name: "Danny Connaughton", phone: "087 799 6207", email: "" },

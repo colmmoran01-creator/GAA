@@ -111,8 +111,7 @@ export default function HomePage() {
           <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
             <div className="text-sm font-semibold text-neutral-900">Club Ethos</div>
             <div className="mt-2 text-sm text-neutral-800">
-              Give Respect, Get Respect. We coach in a positive, safe environment where every player develops skills,
-              confidence, and love for the game. Selection is fair, transparent, and always player-first.
+              Apply the <strong>GIVE RESPECT-GET RESPECT</strong> Principles through <strong>FAIR, CONSISTENT & CHILD CENTERED</strong> decision making at all underage levels
             </div>
           </div>
 
@@ -155,7 +154,7 @@ export default function HomePage() {
             <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
               <div className="text-sm font-semibold text-neutral-900">Contacts</div>
               <div className="mt-2 text-sm text-neutral-700">
-                Chairman, Secretary, Treasurer, PRO, Pitch Co-ordinators.
+                Club Executive & Other Important Contacts
               </div>
               <Link
                 href="/contacts"

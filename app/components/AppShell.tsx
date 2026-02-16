@@ -63,6 +63,9 @@ export default function AppShell({
         {/* Optional top nav */}
         {showTopNav && (
           <nav className="mx-auto flex max-w-6xl gap-4 px-4 pb-3 text-sm">
+            <Link href="/" className="hover:underline">
+              Home
+            </Link>
             <Link href="/teams" className="hover:underline">
               Teams
             </Link>
