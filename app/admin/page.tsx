@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import {
   collection,
+  doc,
+  getDoc,
   getDocs,
   orderBy,
   query,
@@ -15,20 +17,27 @@ import { db } from "@/lib/firebase";
 import AppShell from "../components/AppShell";
 import * as XLSX from "xlsx-js-style";
 
-type Team = { id: string; name: string };
+type Team = { id: string; name: string; coachNames?: string[]; coachUids?: string[]; adminUids?: string[] };
 type Player = { id: string; name: string };
+
 type EventDoc = {
   id: string;
   teamId: string;
   type: string;
   date: string; // YYYY-MM-DD
   venue?: string;
+
   opposition?: string;
   teamGoals?: number;
   teamPoints?: number;
   oppGoals?: number;
   oppPoints?: number;
+
+  attendanceTakenByUid?: string;
+  attendanceTakenByName?: string;
+  attendanceTakenAt?: number;
 };
+
 type AttendanceDoc = {
   id: string;
   teamId?: string;
@@ -46,28 +55,42 @@ type CanonType =
   | "challenge_match"
   | "go_games";
 
-// --- Type helpers (supports legacy values too) ---
 function normalizeType(t: any): CanonType {
   if (t === "match") return "league_match";
   if (t === "challenge") return "challenge_match";
-  if (t === "league_match" || t === "championship_match" || t === "challenge_match" || t === "training" || t === "go_games") return t;
+  if (
+    t === "training" ||
+    t === "league_match" ||
+    t === "championship_match" ||
+    t === "challenge_match" ||
+    t === "go_games"
+  )
+    return t;
   return "training";
 }
 
 function typeLabel(t: any) {
-  const nt = normalizeType(t);
-  switch (nt) {
-    case "training": return "Training";
-    case "league_match": return "League Match";
-    case "championship_match": return "Championship Match";
-    case "challenge_match": return "Challenge Match";
-    case "go_games": return "Go Games";
+  switch (normalizeType(t)) {
+    case "training":
+      return "Training";
+    case "league_match":
+      return "League Match";
+    case "championship_match":
+      return "Championship Match";
+    case "challenge_match":
+      return "Challenge Match";
+    case "go_games":
+      return "Go Games";
   }
 }
 
 function isMatchType(t: any) {
   const nt = normalizeType(t);
-  return nt === "league_match" || nt === "championship_match" || nt === "challenge_match";
+  return (
+    nt === "league_match" ||
+    nt === "championship_match" ||
+    nt === "challenge_match"
+  );
 }
 
 function isGoGames(t: any) {
@@ -75,14 +98,18 @@ function isGoGames(t: any) {
 }
 
 function eventFillRGB(t: any) {
-  // pastel fills for readability
   const nt = normalizeType(t);
   switch (nt) {
-    case "training": return "D9EAFD";           // light blue
-    case "league_match": return "DDF7E3";       // light green
-    case "championship_match": return "FFF2CC"; // light gold
-    case "challenge_match": return "FADBD8";    // light red
-    case "go_games": return "EFE1FF";           // light purple
+    case "training":
+      return "D9EAFD"; // light blue
+    case "league_match":
+      return "DDF7E3"; // light green
+    case "championship_match":
+      return "FFF2CC"; // light gold
+    case "challenge_match":
+      return "FADBD8"; // light red
+    case "go_games":
+      return "EFE1FF"; // light purple
   }
 }
 
@@ -96,7 +123,13 @@ function scoreString(e: EventDoc) {
   const tp = e.teamPoints;
   const og = e.oppGoals;
   const op = e.oppPoints;
-  if (tg === undefined || tp === undefined || og === undefined || op === undefined) return "";
+  if (
+    tg === undefined ||
+    tp === undefined ||
+    og === undefined ||
+    op === undefined
+  )
+    return "";
   return `${tg}-${tp} vs ${og}-${op}`;
 }
 
@@ -124,6 +157,18 @@ function styleBody() {
   };
 }
 
+async function fetchUserDisplayName(uid: string): Promise<string> {
+  if (!uid) return "";
+  const snap = await getDoc(doc(db, "users", uid));
+  if (!snap.exists()) return "";
+
+  const data = snap.data() as any;
+  const display = String(data.displayName ?? "").trim();
+  const first = String(data.firstName ?? "").trim();
+  const last = String(data.lastName ?? "").trim();
+  return display || `${first} ${last}`.trim();
+}
+
 export default function AdminPage() {
   const router = useRouter();
 
@@ -136,12 +181,14 @@ export default function AdminPage() {
   const [attendance, setAttendance] = useState<AttendanceDoc[]>([]);
 
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
-  // --- Auth + load accessible teams (admin OR coach) ---
+  // Auth + load teams user can see (admin OR coach)
   useEffect(() => {
     const auth = getAuth();
+
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         router.replace("/login");
@@ -154,26 +201,34 @@ export default function AdminPage() {
       setMsg("");
 
       try {
-        // admin teams
-        const qAdmin = query(collection(db, "teams"), where("adminUids", "array-contains", user.uid));
-        // coach teams
-        const qCoach = query(collection(db, "teams"), where("coachUids", "array-contains", user.uid));
+        const qAdmin = query(
+          collection(db, "teams"),
+          where("adminUids", "array-contains", user.uid)
+        );
+        const qCoach = query(
+          collection(db, "teams"),
+          where("coachUids", "array-contains", user.uid)
+        );
 
-        const [snapAdmin, snapCoach] = await Promise.all([getDocs(qAdmin), getDocs(qCoach)]);
+        const [snapAdmin, snapCoach] = await Promise.all([
+          getDocs(qAdmin),
+          getDocs(qCoach),
+        ]);
 
         const map = new Map<string, Team>();
         snapAdmin.forEach((d) => {
           const data = d.data() as any;
-          map.set(d.id, { id: d.id, name: data?.name ?? d.id });
+          map.set(d.id, { id: d.id, name: data?.name ?? d.id, ...(data as any) });
         });
         snapCoach.forEach((d) => {
           const data = d.data() as any;
-          map.set(d.id, { id: d.id, name: data?.name ?? d.id });
+          map.set(d.id, { id: d.id, name: data?.name ?? d.id, ...(data as any) });
         });
 
-        const list = Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+        const list = Array.from(map.values()).sort((a, b) =>
+          (a.name ?? "").localeCompare(b.name ?? "")
+        );
         setTeams(list);
-
         if (list.length > 0) setTeamId((prev) => prev || list[0].id);
       } catch (e: any) {
         console.error(e);
@@ -186,7 +241,7 @@ export default function AdminPage() {
     return () => unsub();
   }, [router]);
 
-  // --- Load events/players/attendance for selected team ---
+  // Load events/players/attendance for selected team
   useEffect(() => {
     (async () => {
       if (!teamId) return;
@@ -196,7 +251,6 @@ export default function AdminPage() {
       setMsg("");
 
       try {
-        // Events (ordered by date)
         const qEvents = query(
           collection(db, "events"),
           where("teamId", "==", teamId),
@@ -207,16 +261,20 @@ export default function AdminPage() {
         snapE.forEach((d) => ev.push({ id: d.id, ...(d.data() as any) }));
         setEvents(ev);
 
-        // Players
-        const qPlayers = query(collection(db, "players"), where("teamId", "==", teamId));
+        const qPlayers = query(
+          collection(db, "players"),
+          where("teamId", "==", teamId)
+        );
         const snapP = await getDocs(qPlayers);
         const pl: Player[] = [];
         snapP.forEach((d) => pl.push({ id: d.id, ...(d.data() as any) }));
         pl.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
         setPlayers(pl);
 
-        // Attendance (assumes attendance docs include teamId — your earlier export worked this way)
-        const qAtt = query(collection(db, "attendance"), where("teamId", "==", teamId));
+        const qAtt = query(
+          collection(db, "attendance"),
+          where("teamId", "==", teamId)
+        );
         const snapA = await getDocs(qAtt);
         const at: AttendanceDoc[] = [];
         snapA.forEach((d) => at.push({ id: d.id, ...(d.data() as any) }));
@@ -238,19 +296,23 @@ export default function AdminPage() {
     };
   }, [events.length, players.length, attendance.length]);
 
-  function exportExcel() {
+  async function exportExcel() {
+    setExporting(true);
     try {
       setErr("");
       setMsg("");
 
       if (!teamId) return;
 
-      const ev = [...events].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      const ev = [...events].sort((a, b) =>
+        String(a.date).localeCompare(String(b.date))
+      );
 
       // attendance[eventId][playerId] = present boolean
       const attMap = new Map<string, Map<string, boolean>>();
       for (const a of attendance) {
         if (!a.eventId || !a.playerId) continue;
+
         const present =
           (a.status ?? "").toLowerCase() === "present" || a.present === true;
 
@@ -258,14 +320,40 @@ export default function AdminPage() {
         attMap.get(a.eventId)!.set(a.playerId, present);
       }
 
+      // ✅ Resolve coach names with fallback to users collection
+      const userNameCache = new Map<string, string>();
+
+      async function resolveCoachName(e: EventDoc): Promise<string> {
+        const direct = String(e.attendanceTakenByName ?? "").trim();
+        if (direct) return direct;
+
+        const byUid = String(e.attendanceTakenByUid ?? "").trim();
+        if (!byUid) return "";
+
+        if (userNameCache.has(byUid)) return userNameCache.get(byUid)!;
+
+        const name = await fetchUserDisplayName(byUid);
+        const finalName = name || byUid;
+        userNameCache.set(byUid, finalName);
+        return finalName;
+      }
+
+      const coachNames = await Promise.all(ev.map(resolveCoachName));
+
       // meta rows per event column
       const eventTypeRow = ["Event type", ...ev.map((e) => typeLabel(e.type))];
       const dateRow = ["Date", ...ev.map((e) => e.date ?? "")];
       const venueRow = ["Venue", ...ev.map((e) => e.venue ?? "")];
+
+      // ✅ Coach row now filled via users fallback
+      const coachRow = ["Coach", ...coachNames];
+
       const oppRow = ["Opposition", ...ev.map((e) => e.opposition ?? "")];
       const scoreRow = [
         "Score",
-        ...ev.map((e) => (isMatchType(e.type) ? scoreString(e) : "")),
+        ...ev.map((e) =>
+          isMatchType(e.type) && !isGoGames(e.type) ? scoreString(e) : ""
+        ),
       ];
 
       // matrix rows
@@ -285,7 +373,9 @@ export default function AdminPage() {
       const totalRow: (string | number)[] = ["Total present", ...presentCounts];
       const pctRow: (string | number)[] = [
         "% attendance",
-        ...presentCounts.map((c) => (players.length ? pct(c / players.length) : "")),
+        ...presentCounts.map((c) =>
+          players.length ? pct(c / players.length) : ""
+        ),
       ];
 
       // summary block
@@ -312,9 +402,13 @@ export default function AdminPage() {
       const overallAvg = totalSlots ? totalPresent / totalSlots : 0;
 
       // per-player split: training vs matches vs go games
-      const trainingIds = ev.filter((e) => normalizeType(e.type) === "training").map((e) => e.id);
+      const trainingIds = ev
+        .filter((e) => normalizeType(e.type) === "training")
+        .map((e) => e.id);
       const matchIds = ev.filter((e) => isMatchType(e.type)).map((e) => e.id);
-      const goIds = ev.filter((e) => isGoGames(e.type)).map((e) => e.id);
+      const goIds = ev
+        .filter((e) => normalizeType(e.type) === "go_games")
+        .map((e) => e.id);
 
       const perPlayerSplitRows: (string | number)[][] = [];
       for (const p of players) {
@@ -334,13 +428,19 @@ export default function AdminPage() {
 
         perPlayerSplitRows.push([
           p.name ?? "",
-          trainingIds.length, trP, pct(trPct),
-          matchIds.length, maP, pct(maPct),
-          goIds.length, goP, pct(goPct),
+          trainingIds.length,
+          trP,
+          pct(trPct),
+          matchIds.length,
+          maP,
+          pct(maPct),
+          goIds.length,
+          goP,
+          pct(goPct),
         ]);
       }
 
-      // --- Reasons Missing tab (Player | Reason | Count)
+      // Reasons Missing tab (Player | Reason | Count)
       const reasonCounts = new Map<string, Map<string, number>>();
       for (const a of attendance) {
         const status = (a.status ?? "").toLowerCase();
@@ -364,20 +464,23 @@ export default function AdminPage() {
         }
       }
 
-      // --- Build Attendance Matrix sheet (styled) ---
+      // Build Attendance Matrix sheet (styled)
       const aoa: any[][] = [];
-      aoa.push(eventTypeRow);
-      aoa.push(dateRow);
-      aoa.push(venueRow);
-      aoa.push(oppRow);
-      aoa.push(scoreRow);
-      aoa.push([]); // spacer
+      aoa.push(eventTypeRow); // row 0
+      aoa.push(dateRow);      // row 1
+      aoa.push(venueRow);     // row 2
+      aoa.push(coachRow);     // row 3 ✅
+      aoa.push(oppRow);       // row 4
+      aoa.push(scoreRow);     // row 5
+      aoa.push([]);           // spacer
 
       const matrixHeaderRowIndex = aoa.length;
       aoa.push(["Player", ...ev.map(() => "")]);
 
       const firstPlayerRow = aoa.length;
       aoa.push(...playerRows);
+      const lastPlayerRow = firstPlayerRow + players.length - 1;
+
       aoa.push(totalRow);
       aoa.push(pctRow);
 
@@ -388,26 +491,44 @@ export default function AdminPage() {
       aoa.push([]);
       aoa.push(["Type", "# Events", "Avg attendance"]);
 
-      (["training", "league_match", "championship_match", "challenge_match", "go_games"] as const).forEach((t) => {
-        const avg = slotsByType[t] ? presentTotalsByType[t] / slotsByType[t] : NaN;
+      ([
+        "training",
+        "league_match",
+        "championship_match",
+        "challenge_match",
+        "go_games",
+      ] as const).forEach((t) => {
+        const avg = slotsByType[t]
+          ? presentTotalsByType[t] / slotsByType[t]
+          : NaN;
         aoa.push([typeLabel(t), buckets[t], pct(avg)]);
       });
 
       aoa.push([]);
       aoa.push(["Per player attendance split"]);
-      aoa.push(["Player", "Training events", "Training present", "Training %", "Match events", "Match present", "Match %", "Go Games", "Go present", "Go %"]);
+      aoa.push([
+        "Player",
+        "Training events",
+        "Training present",
+        "Training %",
+        "Match events",
+        "Match present",
+        "Match %",
+        "Go Games",
+        "Go present",
+        "Go %",
+      ]);
       aoa.push(...perPlayerSplitRows);
 
       const ws = XLSX.utils.aoa_to_sheet(aoa);
 
       // Column widths
-      ws["!cols"] = [
-        { wch: 26 },
-        ...ev.map(() => ({ wch: 16 })),
-      ];
+      ws["!cols"] = [{ wch: 26 }, ...ev.map(() => ({ wch: 18 }))];
 
-      // Style top meta rows (0-4): shade by event type per column
-      const metaRows = [0, 1, 2, 3, 4];
+      // Meta rows include 0..5
+      const metaRows = [0, 1, 2, 3, 4, 5];
+
+      // Style header/meta rows by event type per column
       for (let c = 1; c <= ev.length; c++) {
         const fill = eventFillRGB(ev[c - 1].type);
         for (const r of metaRows) {
@@ -415,8 +536,9 @@ export default function AdminPage() {
           if (ws[addr]) ws[addr].s = styleHeader(fill);
         }
       }
-      // Meta row labels in column A
-      for (let r = 0; r <= 4; r++) {
+
+      // Label cells in column A for meta rows
+      for (let r = 0; r <= 5; r++) {
         const addr = XLSX.utils.encode_cell({ r, c: 0 });
         if (ws[addr]) {
           ws[addr].s = {
@@ -434,15 +556,16 @@ export default function AdminPage() {
             font: { bold: true, color: { rgb: "111827" } },
             fill: { patternType: "solid", fgColor: { rgb: "F3F4F6" } },
             alignment: { vertical: "center" },
-            border: { bottom: { style: "thin", color: { rgb: "E5E7EB" } } },
+            border: {
+              bottom: { style: "thin", color: { rgb: "E5E7EB" } },
+            },
           };
         }
       }
 
-      // Player matrix body styling + event column shading
-      const lastPlayerRow = firstPlayerRow + players.length - 1;
       const lastMatrixRow = lastPlayerRow + 2; // includes Total + % rows
 
+      // Body styling
       for (let r = firstPlayerRow; r <= lastMatrixRow; r++) {
         for (let c = 0; c <= ev.length; c++) {
           const addr = XLSX.utils.encode_cell({ r, c });
@@ -451,7 +574,7 @@ export default function AdminPage() {
         }
       }
 
-      // Shade event columns (including totals rows) to match type
+      // Shade event columns in matrix area to match type
       for (let c = 1; c <= ev.length; c++) {
         const fill = eventFillRGB(ev[c - 1].type);
         for (let r = matrixHeaderRowIndex; r <= lastMatrixRow; r++) {
@@ -473,13 +596,18 @@ export default function AdminPage() {
       XLSX.utils.book_append_sheet(wb, ws, "Attendance Matrix");
       XLSX.utils.book_append_sheet(wb, ws2, "Reasons Missing");
 
-      const fname = `attendance_${teamId}_${new Date().toISOString().slice(0, 10)}.xlsx`;
-      XLSX.writeFile(wb, fname);
+      const teamName = teams.find((t) => t.id === teamId)?.name ?? teamId;
+      const fname = `attendance_${teamName}_${new Date()
+        .toISOString()
+        .slice(0, 10)}.xlsx`;
 
-      setMsg("Exported Excel with match details + shading + summaries.");
+      XLSX.writeFile(wb, fname);
+      setMsg("Exported Excel ✅ (Coach row now uses users collection fallback)");
     } catch (e: any) {
       console.error(e);
       setErr(e?.message ?? String(e));
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -510,11 +638,21 @@ export default function AdminPage() {
           </Link>
         </div>
 
-        {msg && <div className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{msg}</div>}
-        {err && <div className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{err}</div>}
+        {msg && (
+          <div className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">
+            {msg}
+          </div>
+        )}
+        {err && (
+          <div className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">
+            {err}
+          </div>
+        )}
 
         <div className="mt-4">
-          <label className="block text-sm font-medium text-neutral-800">Team</label>
+          <label className="block text-sm font-medium text-neutral-800">
+            Team
+          </label>
           <select
             value={teamId}
             onChange={(e) => setTeamId(e.target.value)}
@@ -530,9 +668,10 @@ export default function AdminPage() {
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button
               onClick={exportExcel}
-              className="rounded-full bg-[#1E3A8A] px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90"
+              disabled={exporting}
+              className="rounded-full bg-[#1E3A8A] px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-50"
             >
-              Export Excel (.xlsx)
+              {exporting ? "Exporting…" : "Export Excel (.xlsx)"}
             </button>
 
             <div className="text-xs text-neutral-500">
@@ -541,13 +680,16 @@ export default function AdminPage() {
           </div>
 
           <div className="mt-3 text-xs text-neutral-500">
-            Events: <strong className="text-neutral-800">{stats.events}</strong> • Players:{" "}
-            <strong className="text-neutral-800">{stats.players}</strong> • Attendance records:{" "}
+            Events: <strong className="text-neutral-800">{stats.events}</strong>{" "}
+            • Players:{" "}
+            <strong className="text-neutral-800">{stats.players}</strong> •
+            Attendance records:{" "}
             <strong className="text-neutral-800">{stats.attendance}</strong>
           </div>
 
           <div className="mt-2 text-xs text-neutral-500">
-            Tip: Column shading is based on event type (Training / League / Championship / Challenge / Go Games).
+            Coach row logic: uses <code>events.attendanceTakenByName</code> first,
+            otherwise looks up <code>users/{`{uid}`}</code>.
           </div>
         </div>
       </div>
