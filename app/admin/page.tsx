@@ -379,7 +379,7 @@ export default function AdminPage() {
       const totalEvents = ev.length;
 
       // overall avg only counts saved events
-      const totalPresent = presentCounts.reduce((acc, v) => acc + (v ?? 0), 0);
+      const totalPresent = presentCounts.reduce<number>((acc, v) => acc + (v ?? 0), 0);
       const totalSavedEvents = savedFlags.filter(Boolean).length;
       const totalSlots = totalSavedEvents * players.length;
       const overallAvg = totalSlots ? totalPresent / totalSlots : 0;
