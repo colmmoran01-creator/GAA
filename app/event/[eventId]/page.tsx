@@ -36,6 +36,11 @@ type EventDoc = {
   attendanceTakenByUid?: string;
   attendanceTakenByName?: string;
   attendanceTakenAt?: number;
+
+  // ✅ NEW: attendance summary saved on event for exports
+  attendanceTotal?: number;
+  attendancePresent?: number;
+  attendanceAbsent?: number;
 };
 
 type AttendanceRow = {
@@ -44,22 +49,13 @@ type AttendanceRow = {
   reason: string;
 };
 
-const ABSENCE_REASONS = [
-  "",
-  "Rugby",
-  "Soccer",
-  "Hurling",
-  "Holidays",
-  "Work",
-  "No Apology",
-];
+const ABSENCE_REASONS = ["", "Rugby", "Soccer", "Hurling", "Holidays", "Work", "No Apology"];
 
-type CanonType =
-  | "training"
-  | "league_match"
-  | "championship_match"
-  | "challenge_match"
-  | "go_games";
+// Venue dropdown options
+const VENUE_OPTIONS = ["Maryland", "Tang", "Other"] as const;
+type VenueOption = (typeof VENUE_OPTIONS)[number];
+
+type CanonType = "training" | "league_match" | "championship_match" | "challenge_match" | "go_games";
 
 function normalizeType(t: any): CanonType {
   if (t === "match") return "league_match";
@@ -77,11 +73,7 @@ function normalizeType(t: any): CanonType {
 
 function isMatchType(t: any) {
   const nt = normalizeType(t);
-  return (
-    nt === "league_match" ||
-    nt === "championship_match" ||
-    nt === "challenge_match"
-  );
+  return nt === "league_match" || nt === "championship_match" || nt === "challenge_match";
 }
 
 function isGoGames(t: any) {
@@ -119,7 +111,6 @@ async function getCurrentUserDisplayName(): Promise<{ uid: string; name: string 
   const u = auth.currentUser;
   if (!u) throw new Error("Not logged in.");
 
-  // ✅ Pull name from users/{uid}
   const snap = await getDoc(doc(db, "users", u.uid));
   if (snap.exists()) {
     const data = snap.data() as any;
@@ -127,17 +118,10 @@ async function getCurrentUserDisplayName(): Promise<{ uid: string; name: string 
     const last = String(data.lastName ?? "").trim();
     const display = String(data.displayName ?? "").trim();
 
-    const name =
-      display ||
-      `${first} ${last}`.trim() ||
-      u.displayName ||
-      u.email ||
-      u.uid;
-
+    const name = display || `${first} ${last}`.trim() || u.displayName || u.email || u.uid;
     return { uid: u.uid, name };
   }
 
-  // fallback if profile missing
   return { uid: u.uid, name: u.displayName || u.email || u.uid };
 }
 
@@ -146,6 +130,7 @@ export default function EventPage() {
   const router = useRouter();
   const eventId = typeof params.eventId === "string" ? params.eventId : "";
 
+  // Core state
   const [event, setEvent] = useState<EventDoc | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [rows, setRows] = useState<Record<string, AttendanceRow>>({});
@@ -154,6 +139,52 @@ export default function EventPage() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
+
+  // Venue state
+  const [venueChoice, setVenueChoice] = useState<VenueOption>("Maryland");
+  const [venueOtherText, setVenueOtherText] = useState("");
+  const [venueSaving, setVenueSaving] = useState(false);
+
+  // Unsaved-change protection
+  const [dirty, setDirty] = useState(false);
+  const [initialised, setInitialised] = useState(false);
+
+  function confirmLeaveIfDirty() {
+    if (!dirty) return true;
+    return window.confirm("You have unsaved attendance changes. Leave this page without saving?");
+  }
+
+  // Warn on tab close / refresh
+  useEffect(() => {
+    function handleBeforeUnload(e: BeforeUnloadEvent) {
+      if (!dirty) return;
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [dirty]);
+
+  // Warn on browser back/forward (SPA)
+  useEffect(() => {
+    // create a history entry so back triggers popstate
+    try {
+      history.pushState(null, "", window.location.href);
+    } catch {}
+
+    function onPopState() {
+      if (!dirty) return;
+      const ok = window.confirm("You have unsaved attendance changes. Leave this page without saving?");
+      if (!ok) {
+        try {
+          history.pushState(null, "", window.location.href);
+        } catch {}
+      }
+    }
+
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [dirty]);
 
   // Auth gate
   useEffect(() => {
@@ -164,7 +195,7 @@ export default function EventPage() {
     return () => unsub();
   }, [router]);
 
-  // Load event + players + existing attendance
+  // Load event + players + attendance
   useEffect(() => {
     (async () => {
       if (!eventId) return;
@@ -172,6 +203,8 @@ export default function EventPage() {
       setLoading(true);
       setErr("");
       setMsg("");
+      setDirty(false);
+      setInitialised(false);
 
       try {
         // 1) Event
@@ -184,11 +217,24 @@ export default function EventPage() {
         const eData = { id: eSnap.id, ...(eSnap.data() as any) } as EventDoc;
         setEvent(eData);
 
-        // 2) Players for this team
-        const pQ = query(
-          collection(db, "players"),
-          where("teamId", "==", eData.teamId)
-        );
+        // Init venue UI from event.venue
+        const currentVenue = String(eData.venue ?? "").trim();
+        if (!currentVenue) {
+          setVenueChoice("Maryland");
+          setVenueOtherText("");
+        } else if (currentVenue.toLowerCase() === "maryland") {
+          setVenueChoice("Maryland");
+          setVenueOtherText("");
+        } else if (currentVenue.toLowerCase() === "tang") {
+          setVenueChoice("Tang");
+          setVenueOtherText("");
+        } else {
+          setVenueChoice("Other");
+          setVenueOtherText(currentVenue);
+        }
+
+        // 2) Players
+        const pQ = query(collection(db, "players"), where("teamId", "==", eData.teamId));
         const pSnap = await getDocs(pQ);
 
         const pList: Player[] = [];
@@ -196,37 +242,46 @@ export default function EventPage() {
         pList.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
         setPlayers(pList);
 
-        // 3) Existing attendance for this event
-        const aQ = query(
-          collection(db, "attendance"),
-          where("eventId", "==", eventId)
-        );
-        const aSnap = await getDocs(aQ);
+        // 3) Attendance (scoped query)
+        try {
+          const aQ = query(
+            collection(db, "attendance"),
+            where("teamId", "==", eData.teamId),
+            where("eventId", "==", eventId)
+          );
+          const aSnap = await getDocs(aQ);
 
-        const map: Record<string, AttendanceRow> = {};
-        aSnap.forEach((d) => {
-          const a = d.data() as any;
-          if (!a.playerId) return;
+          const map: Record<string, AttendanceRow> = {};
+          aSnap.forEach((d) => {
+            const a = d.data() as any;
+            if (!a.playerId) return;
 
-          const statusRaw = String(a.status ?? "").toLowerCase();
-          const status: "Present" | "Absent" =
-            statusRaw === "present" || a.present === true ? "Present" : "Absent";
+            const statusRaw = String(a.status ?? "").toLowerCase();
+            const status: "Present" | "Absent" =
+              statusRaw === "present" || a.present === true ? "Present" : "Absent";
 
-          map[a.playerId] = {
-            playerId: a.playerId,
-            status,
-            reason: String(a.reason ?? ""),
-          };
-        });
+            map[a.playerId] = {
+              playerId: a.playerId,
+              status,
+              reason: String(a.reason ?? ""),
+            };
+          });
 
-        // default attendance for any player missing a record
-        for (const p of pList) {
-          if (!map[p.id]) {
-            map[p.id] = { playerId: p.id, status: "Present", reason: "" };
+          // default any missing player to Present in UI
+          for (const p of pList) {
+            if (!map[p.id]) map[p.id] = { playerId: p.id, status: "Present", reason: "" };
           }
+
+          setRows(map);
+        } catch (e: any) {
+          console.error("Attendance preload failed (non-fatal):", e);
+          const map: Record<string, AttendanceRow> = {};
+          for (const p of pList) map[p.id] = { playerId: p.id, status: "Present", reason: "" };
+          setRows(map);
         }
 
-        setRows(map);
+        setDirty(false);
+        setInitialised(true);
       } catch (e: any) {
         console.error(e);
         setErr(e?.message ?? String(e));
@@ -240,6 +295,33 @@ export default function EventPage() {
     return Object.values(rows).filter((r) => r.status === "Present").length;
   }, [rows]);
 
+  // Save venue
+  async function saveVenue() {
+    if (!event) return;
+
+    setVenueSaving(true);
+    setErr("");
+    setMsg("");
+
+    try {
+      const finalVenue = venueChoice === "Other" ? venueOtherText.trim() : venueChoice;
+
+      await updateDoc(doc(db, "events", eventId), {
+        venue: finalVenue || "",
+      });
+
+      setEvent((prev) => (prev ? { ...prev, venue: finalVenue } : prev));
+      setMsg("Venue saved ✅");
+      setDirty(false);
+    } catch (e: any) {
+      console.error(e);
+      setErr(e?.message ?? String(e));
+    } finally {
+      setVenueSaving(false);
+    }
+  }
+
+  // Save attendance
   async function saveAttendance() {
     if (!event) return;
 
@@ -249,12 +331,10 @@ export default function EventPage() {
 
     try {
       const { uid, name } = await getCurrentUserDisplayName();
-
-      // Write attendance records deterministically: attendance/{eventId}_{playerId}
       const batch = writeBatch(db);
 
       for (const p of players) {
-        const r = rows[p.id] ?? { playerId: p.id, status: "Present", reason: "" };
+        const r = rows[p.id] ?? ({ playerId: p.id, status: "Present", reason: "" } as AttendanceRow);
         const docId = `${eventId}_${p.id}`;
 
         batch.set(
@@ -274,14 +354,20 @@ export default function EventPage() {
 
       await batch.commit();
 
-      // ✅ Tag the event with who saved attendance (from users collection)
+      // ✅ summary counts saved to event for exports
+      const total = players.length;
+      const present = Object.values(rows).filter((r) => r.status === "Present").length;
+      const absent = total - present;
+
       await updateDoc(doc(db, "events", eventId), {
         attendanceTakenByUid: uid,
         attendanceTakenByName: name,
         attendanceTakenAt: Date.now(),
+        attendanceTotal: total,
+        attendancePresent: present,
+        attendanceAbsent: absent,
       });
 
-      // Update local event state so UI shows it instantly
       setEvent((prev) =>
         prev
           ? {
@@ -289,11 +375,15 @@ export default function EventPage() {
               attendanceTakenByUid: uid,
               attendanceTakenByName: name,
               attendanceTakenAt: Date.now(),
+              attendanceTotal: total,
+              attendancePresent: present,
+              attendanceAbsent: absent,
             }
           : prev
       );
 
       setMsg(`Attendance saved ✅ (Recorded by ${name})`);
+      setDirty(false);
     } catch (e: any) {
       console.error(e);
       setErr(e?.message ?? String(e));
@@ -325,6 +415,8 @@ export default function EventPage() {
     );
   }
 
+  const attendanceSaved = !!event.attendanceTakenAt;
+
   return (
     <AppShell title="Attendance" showTopNav={true}>
       <div className="grid gap-4">
@@ -336,14 +428,76 @@ export default function EventPage() {
                 {typeLabel(event.type)} • {event.date}
               </div>
 
-              <div className="mt-1 text-sm text-neutral-700">
-                Venue: <strong>{event.venue || "—"}</strong>
-                {isMatchType(event.type) && (
-                  <>
-                    {" "}
-                    • Opposition: <strong>{event.opposition || "—"}</strong>
-                  </>
-                )}
+              {/* Warning if not saved */}
+              {!attendanceSaved && (
+                <div className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+                  Attendance not saved yet. Please click <strong>Save Attendance</strong> before leaving.
+                </div>
+              )}
+
+              {/* Warning if dirty */}
+              {dirty && (
+                <div className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+                  You have unsaved changes. Don’t forget to click <strong>Save Attendance</strong>.
+                </div>
+              )}
+
+              {/* Venue */}
+              <div className="mt-2">
+                <div className="flex flex-wrap items-end gap-2">
+                  <div>
+                    <label className="block text-xs font-semibold text-neutral-700">Venue</label>
+                    <select
+                      value={venueChoice}
+                      onChange={(e) => {
+                        const v = e.target.value as VenueOption;
+                        setVenueChoice(v);
+                        if (v !== "Other") setVenueOtherText("");
+                        if (initialised) setDirty(true);
+                      }}
+                      className="mt-1 rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900/10"
+                    >
+                      {VENUE_OPTIONS.map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {venueChoice === "Other" && (
+                    <div>
+                      <label className="block text-xs font-semibold text-neutral-700">Other (type venue)</label>
+                      <input
+                        value={venueOtherText}
+                        onChange={(e) => {
+                          setVenueOtherText(e.target.value);
+                          if (initialised) setDirty(true);
+                        }}
+                        placeholder="e.g. Ballymore, Away pitch, etc."
+                        className="mt-1 w-[260px] rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900/10"
+                      />
+                    </div>
+                  )}
+
+                  <button
+                    onClick={saveVenue}
+                    disabled={venueSaving || (venueChoice === "Other" && venueOtherText.trim().length === 0)}
+                    className="rounded-xl border border-neutral-200 bg-white px-3 py-3 text-sm font-semibold text-neutral-900 shadow-sm hover:bg-neutral-50 disabled:opacity-50"
+                  >
+                    {venueSaving ? "Saving…" : "Save Venue"}
+                  </button>
+
+                  {isMatchType(event.type) && (
+                    <div className="text-sm text-neutral-700">
+                      Opposition: <strong>{event.opposition || "—"}</strong>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-1 text-sm text-neutral-700">
+                  Stored Venue: <strong>{event.venue || "—"}</strong>
+                </div>
               </div>
 
               {isMatchType(event.type) && !isGoGames(event.type) && (
@@ -353,8 +507,7 @@ export default function EventPage() {
               )}
 
               <div className="mt-2 text-xs text-neutral-500">
-                Present:{" "}
-                <strong className="text-neutral-800">{presentCount}</strong> /{" "}
+                Present: <strong className="text-neutral-800">{presentCount}</strong> /{" "}
                 <strong className="text-neutral-800">{players.length}</strong>
               </div>
 
@@ -371,6 +524,9 @@ export default function EventPage() {
             <div className="flex gap-2">
               <Link
                 href={`/team/${event.teamId}`}
+                onClick={(e) => {
+                  if (!confirmLeaveIfDirty()) e.preventDefault();
+                }}
                 className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 shadow-sm hover:bg-neutral-50"
               >
                 ← Team
@@ -386,43 +542,31 @@ export default function EventPage() {
             </div>
           </div>
 
-          {msg && (
-            <div className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">
-              {msg}
-            </div>
-          )}
-          {err && (
-            <div className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">
-              {err}
-            </div>
-          )}
+          {msg && <div className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{msg}</div>}
+          {err && <div className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{err}</div>}
         </div>
 
         {/* Attendance list */}
         <div className="rounded-2xl border border-neutral-200 bg-white p-2 shadow-sm">
           <div className="grid gap-2">
             {players.map((p) => {
-              const r = rows[p.id] ?? { playerId: p.id, status: "Present", reason: "" };
+              const r = rows[p.id] ?? ({ playerId: p.id, status: "Present", reason: "" } as AttendanceRow);
               const isAbsent = r.status === "Absent";
 
               return (
-                <div
-                  key={p.id}
-                  className="rounded-2xl border border-neutral-200 bg-white p-3 shadow-sm"
-                >
+                <div key={p.id} className="rounded-2xl border border-neutral-200 bg-white p-3 shadow-sm">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-neutral-900">
-                      {p.name}
-                    </div>
+                    <div className="text-sm font-semibold text-neutral-900">{p.name}</div>
 
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() =>
+                        onClick={() => {
                           setRows((prev) => ({
                             ...prev,
                             [p.id]: { ...r, status: "Present", reason: "" },
-                          }))
-                        }
+                          }));
+                          if (initialised) setDirty(true);
+                        }}
                         className={`rounded-full px-4 py-2 text-sm font-semibold shadow-sm transition ${
                           !isAbsent
                             ? "bg-emerald-600 text-white"
@@ -433,12 +577,13 @@ export default function EventPage() {
                       </button>
 
                       <button
-                        onClick={() =>
+                        onClick={() => {
                           setRows((prev) => ({
                             ...prev,
                             [p.id]: { ...r, status: "Absent" },
-                          }))
-                        }
+                          }));
+                          if (initialised) setDirty(true);
+                        }}
                         className={`rounded-full px-4 py-2 text-sm font-semibold shadow-sm transition ${
                           isAbsent
                             ? "bg-[#7A0019] text-white"
@@ -452,18 +597,16 @@ export default function EventPage() {
 
                   {isAbsent && (
                     <div className="mt-3">
-                      <label className="block text-xs font-semibold text-neutral-700">
-                        Reason (optional)
-                      </label>
-
+                      <label className="block text-xs font-semibold text-neutral-700">Reason (optional)</label>
                       <select
                         value={r.reason}
-                        onChange={(e) =>
+                        onChange={(e) => {
                           setRows((prev) => ({
                             ...prev,
                             [p.id]: { ...r, reason: e.target.value },
-                          }))
-                        }
+                          }));
+                          if (initialised) setDirty(true);
+                        }}
                         className="mt-1 w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900/10 md:w-[260px]"
                       >
                         {ABSENCE_REASONS.map((x) => (

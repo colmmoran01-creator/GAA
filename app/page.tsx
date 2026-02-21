@@ -4,16 +4,27 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import AppShell from "./components/AppShell";
 
 type Team = { id: string; name: string };
 
+function buildDisplayName(userDoc: any, fallbackEmail?: string | null, fallbackUid?: string) {
+  const display = String(userDoc?.displayName ?? "").trim();
+  const first = String(userDoc?.firstName ?? "").trim();
+  const last = String(userDoc?.lastName ?? "").trim();
+  const full = `${first} ${last}`.trim();
+
+  return display || full || (fallbackEmail ?? "") || fallbackUid || "Unknown user";
+}
+
 export default function HomePage() {
   const router = useRouter();
 
   const [uid, setUid] = useState("");
+  const [userLabel, setUserLabel] = useState(""); // ✅ show name/email instead of UID
+
   const [teams, setTeams] = useState<Team[]>([]);
   const [loadingTeams, setLoadingTeams] = useState(true);
   const [error, setError] = useState("");
@@ -32,12 +43,30 @@ export default function HomePage() {
       setError("");
 
       try {
-        // admin teams
-        const qAdmin = query(collection(db, "teams"), where("adminUids", "array-contains", user.uid));
-        // coach teams
-        const qCoach = query(collection(db, "teams"), where("coachUids", "array-contains", user.uid));
+        // ✅ Load user profile for display name
+        const uSnap = await getDoc(doc(db, "users", user.uid));
+        if (uSnap.exists()) {
+          const data = uSnap.data() as any;
+          setUserLabel(buildDisplayName(data, user.email, user.uid));
+        } else {
+          setUserLabel(user.email || user.uid);
+        }
 
-        const [snapAdmin, snapCoach] = await Promise.all([getDocs(qAdmin), getDocs(qCoach)]);
+        // admin teams
+        const qAdmin = query(
+          collection(db, "teams"),
+          where("adminUids", "array-contains", user.uid)
+        );
+        // coach teams
+        const qCoach = query(
+          collection(db, "teams"),
+          where("coachUids", "array-contains", user.uid)
+        );
+
+        const [snapAdmin, snapCoach] = await Promise.all([
+          getDocs(qAdmin),
+          getDocs(qCoach),
+        ]);
 
         const map = new Map<string, Team>();
         snapAdmin.forEach((d) => {
@@ -49,7 +78,9 @@ export default function HomePage() {
           map.set(d.id, { id: d.id, name: data?.name ?? d.id });
         });
 
-        const list = Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+        const list = Array.from(map.values()).sort((a, b) =>
+          a.name.localeCompare(b.name)
+        );
         setTeams(list);
       } catch (e: any) {
         console.error(e);
@@ -69,16 +100,31 @@ export default function HomePage() {
         <aside className="order-2 rounded-2xl border border-neutral-200 bg-white shadow-sm lg:order-1">
           <div className="border-b border-neutral-100 px-4 py-3">
             <div className="text-sm font-semibold text-neutral-900">Teams</div>
-            <div className="mt-1 text-xs text-neutral-500">
-              Quick access for your UID: <span className="font-mono">{uid}</span>
+
+            <div className="mt-1 text-xs text-neutral-600">
+              Logged in as <strong className="text-neutral-900">{userLabel || "—"}</strong>
             </div>
+
+            {/* Optional: keep UID available but not front-and-center */}
+            <details className="mt-2">
+              <summary className="cursor-pointer text-xs text-neutral-500 hover:text-neutral-700">
+                Show technical details
+              </summary>
+              <div className="mt-1 text-xs text-neutral-600">
+                UID: <span className="font-mono">{uid}</span>
+              </div>
+            </details>
           </div>
 
           <div className="p-2">
-            {loadingTeams && <div className="px-2 py-3 text-sm text-neutral-600">Loading teams…</div>}
+            {loadingTeams && (
+              <div className="px-2 py-3 text-sm text-neutral-600">Loading teams…</div>
+            )}
             {error && <div className="px-2 py-3 text-sm text-red-700">{error}</div>}
             {!loadingTeams && !error && teams.length === 0 && (
-              <div className="px-2 py-3 text-sm text-neutral-600">No teams assigned to your account.</div>
+              <div className="px-2 py-3 text-sm text-neutral-600">
+                No teams assigned to your account.
+              </div>
             )}
 
             <div className="grid gap-2">
@@ -111,22 +157,32 @@ export default function HomePage() {
           <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
             <div className="text-sm font-semibold text-neutral-900">Club Ethos</div>
             <div className="mt-2 text-sm text-neutral-800">
-              Apply the <strong>GIVE RESPECT-GET RESPECT</strong> Principles through <strong>FAIR, CONSISTENT & CHILD CENTERED</strong> decision making at all underage levels
+              Apply the <strong>GIVE RESPECT-GET RESPECT</strong> Principles through{" "}
+              <strong>FAIR, CONSISTENT & CHILD CENTERED</strong> decision making at all underage
+              levels
             </div>
           </div>
 
           {/* 3 Tier Selection Headings */}
           <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
-            <div className="text-sm font-semibold text-neutral-900">The 3 Tier Selection Headings</div>
+            <div className="text-sm font-semibold text-neutral-900">
+              The 3 Tier Selection Headings
+            </div>
             <ul className="mt-2 list-disc pl-5 text-sm text-neutral-800">
               <li>
-                <strong>Attendance (50%):</strong> Consistent participation in training sessions and team activities is crucial for both individual growth, retention and parish senior team success.
+                <strong>Attendance (50%):</strong> Consistent participation in training sessions and
+                team activities is crucial for both individual growth, retention and parish senior
+                team success.
+              </li>
+
+              <li>
+                <strong>Age Category (30%):</strong> Age appropriateness ensures that players are
+                placed in the correct developmental environment to maximize their growth and
+                competitive potential.
               </li>
               <li>
-                <strong>Age Category (30%):</strong> Age appropriateness ensures that players are placed in the correct developmental environment to maximize their growth and competitive potential.
-              </li>
-              <li>
-                <strong>Ability (20%):</strong> Player performance and skills will be assessed to ensure they contribute positively to the team’s success.
+                <strong>Ability (20%):</strong> Player performance and skills will be assessed to
+                ensure they contribute positively to the team’s success.
               </li>
             </ul>
           </div>
@@ -146,9 +202,7 @@ export default function HomePage() {
               >
                 Open PDF
               </a>
-              <div className="mt-2 text-xs text-neutral-500">
-               
-              </div>
+              <div className="mt-2 text-xs text-neutral-500"></div>
             </div>
 
             <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
@@ -173,16 +227,21 @@ export default function HomePage() {
               <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
                 <div className="text-sm font-semibold text-neutral-900">Pitch Rules</div>
                 <ul className="mt-2 list-disc pl-5 text-sm text-neutral-800">
-                  <li>All Rubbish to be collected and binned after each session.</li>
+                   <li>Pitch must be vacated at the alloted time to allow the next team to setup.</li>
+		   <li>All Rubbish to be collected and binned in designated bins after each session.</li>
                   <li>No Goal Posts to be left on the playing fields after a session.</li>
-                  <li>Leave the pitch as you found it: cones/bibs collected.</li>
-                  <li>Pitch must be vacated at the alloted time.</li>
-                  <li>Please be vigilant of Moving Traffic in carparks at all times - especially for younger age groups.</li>
+                  <li>Leave the changing rooms as you would like to find it: Swept Out, Toilets Flushed & Rubbish Binned.</li>
+                  <li>
+                    Please be vigilant of Moving Traffic in carparks at all times - especially for
+                    younger age groups.
+                  </li>
                 </ul>
               </div>
 
               <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
-                <div className="text-sm font-semibold text-neutral-900">Match Result Reporting</div>
+                <div className="text-sm font-semibold text-neutral-900">
+                  Match Result Reporting
+                </div>
                 <ul className="mt-2 list-disc pl-5 text-sm text-neutral-800">
                   <li>Report match results on same day where possible to club secretary.</li>
                   <li>Use the agreed channel - WhatsApp.</li>
@@ -191,9 +250,7 @@ export default function HomePage() {
               </div>
             </div>
 
-            <div className="mt-3 text-xs text-neutral-500">
-          
-            </div>
+            <div className="mt-3 text-xs text-neutral-500"></div>
           </div>
         </section>
       </div>

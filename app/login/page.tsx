@@ -53,6 +53,22 @@ export default function LoginPage() {
         }
 
         const data = usnap.data() as any;
+
+        // ✅ Ensure pending-access fields exist (safe defaults)
+        // This helps older accounts created before you added role/teamIds.
+        if (!("role" in data) || !("teamIds" in data)) {
+          await setDoc(
+            uref,
+            {
+              role: data?.role ?? "pending",
+              teamIds: Array.isArray(data?.teamIds) ? data.teamIds : [],
+              updatedAt: Date.now(),
+            },
+            { merge: true }
+          );
+        }
+
+        // If name missing, complete profile
         if (!data?.firstName || !data?.lastName) {
           setMode("completeProfile");
           setEmail(user.email ?? "");
@@ -77,7 +93,27 @@ export default function LoginPage() {
     setMsg("");
 
     try {
-      const res = await signInWithEmailAndPassword(auth, email.trim(), password);
+      const e = email.trim().toLowerCase();
+      const res = await signInWithEmailAndPassword(auth, e, password);
+
+      // Ensure user doc has role/teamIds defaults (in case it existed without them)
+      const uref = doc(db, "users", res.user.uid);
+      const usnap = await getDoc(uref);
+      if (usnap.exists()) {
+        const data = usnap.data() as any;
+        if (!("role" in data) || !("teamIds" in data)) {
+          await setDoc(
+            uref,
+            {
+              role: data?.role ?? "pending",
+              teamIds: Array.isArray(data?.teamIds) ? data.teamIds : [],
+              updatedAt: Date.now(),
+            },
+            { merge: true }
+          );
+        }
+      }
+
       // After sign-in, the onAuthStateChanged above will route to / or request profile.
       setMsg(`Welcome ${res.user.email ?? ""}`);
     } catch (e: any) {
@@ -102,19 +138,23 @@ export default function LoginPage() {
         return;
       }
 
-      const res = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      const e = email.trim().toLowerCase();
+      const res = await createUserWithEmailAndPassword(auth, e, password);
       const uid = res.user.uid;
 
+      // ✅ Create profile as PENDING by default
       await setDoc(doc(db, "users", uid), {
         firstName: fn,
         lastName: ln,
         displayName: `${fn} ${ln}`.trim(),
-        email: res.user.email ?? email.trim(),
+        email: res.user.email ?? e,
+        role: "pending",
+        teamIds: [],
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
 
-      router.replace("/"); // ✅ go Home
+      router.replace("/"); // ✅ go Home (we will gate access there)
     } catch (e: any) {
       console.error(e);
       setErr(e?.message ?? String(e));
@@ -144,13 +184,16 @@ export default function LoginPage() {
         return;
       }
 
+      // ✅ Keep existing profile fields, ensure role/teamIds exist too
       await setDoc(
         doc(db, "users", user.uid),
         {
           firstName: fn,
           lastName: ln,
           displayName: `${fn} ${ln}`.trim(),
-          email: user.email ?? email.trim(),
+          email: user.email ?? email.trim().toLowerCase(),
+          role: "pending", // will not overwrite if already coach/admin (merge true below won't override unless you set it)
+          teamIds: [], // same note
           updatedAt: Date.now(),
         },
         { merge: true }
@@ -176,7 +219,7 @@ export default function LoginPage() {
         setLoading(false);
         return;
       }
-      await sendPasswordResetEmail(auth, email.trim());
+      await sendPasswordResetEmail(auth, email.trim().toLowerCase());
       setMsg("Password reset email sent. Check your inbox.");
     } catch (e: any) {
       console.error(e);
@@ -223,7 +266,7 @@ export default function LoginPage() {
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
                 className="mt-1 w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900/10"
-                placeholder="e.g., Colm"
+                placeholder="e.g., John"
               />
             </div>
 
@@ -233,7 +276,7 @@ export default function LoginPage() {
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
                 className="mt-1 w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900/10"
-                placeholder="e.g., Moran"
+                placeholder="e.g., Jones"
               />
             </div>
           </div>
@@ -329,6 +372,10 @@ export default function LoginPage() {
               >
                 Back to login
               </button>
+
+              <div className="mt-2 text-xs text-neutral-500">
+                After registering, your account is <strong>pending</strong> until an admin approves you.
+              </div>
             </>
           )}
 

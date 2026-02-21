@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // ✅ Safe role lookup (defaults to "pending" if missing)
+    function userRole() {
+      return userDoc().role != null ? userDoc().role : "pending";
+    }
+
+    function isAdmin() {
+      return signedIn() && userRole() == "admin";
+    }
+
+    function isCoach() {
+      return signedIn() && userRole() == "coach";
+    }
+
+    function teamDoc(teamId) {
+      return get(/databases/$(database)/documents/teams/$(teamId)).data;
+    }
+
+    // ✅ Safe membership check: only check arrays if they exist
+    function inTeam(teamId) {
+      return signedIn() && (
+        (teamDoc(teamId).coachUids != null && request.auth.uid in teamDoc(teamId).coachUids) ||
+        (teamDoc(teamId).adminUids != null && request.auth.uid in teamDoc(teamId).adminUids)
+      );
+    }
+
+    // USERS
+    match /users/{userId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.auth.uid == userId;
+      allow update: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow delete: if false;
+    }
+
+    // TEAMS
+    match /teams/{teamId} {
+      allow read: if signedIn() && (inTeam(teamId) || isAdmin());
+      allow create, update, delete: if isAdmin();
+    }
+
+    // PLAYERS
+    match /players/{playerId} {
+      allow read: if signedIn() && inTeam(resource.data.teamId);
+      allow create: if signedIn() && inTeam(request.resource.data.teamId);
+      allow update, delete: if signedIn() && inTeam(resource.data.teamId) && isAdmin();
+    }
+
+    // EVENTS
+    match /events/{eventId} {
+      allow read: if signedIn() && inTeam(resource.data.teamId);
+      allow create: if signedIn() && inTeam(request.resource.data.teamId);
+      allow update, delete: if signedIn() && inTeam(resource.data.teamId);
+    }
+
+    // ATTENDANCE
+    match /attendance/{attendanceId} {
+      allow read: if signedIn() && inTeam(resource.data.teamId);
+      allow create: if signedIn() && inTeam(request.resource.data.teamId);
+      allow update, delete: if signedIn() && inTeam(resource.data.teamId);
+    }
+  }
+}

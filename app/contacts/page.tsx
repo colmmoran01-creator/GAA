@@ -13,7 +13,7 @@ const CONTACTS: Contact[] = [
   { role: "Child Protection Officer (Maryland)", name: "Donal Hogan", phone: "086 157 5593", email: "" },
   { role: "Child Protection Officer (Tang)", name: "Michael Bannon", phone: "086 102 5244", email: "" },
   { role: "Coaching Officer (Maryland)", name: "Aidan Reynolds", phone: "087 905 2468", email: "" },
-  { role: "Coaching Officer (Tang)", name: "", phone: "", email: "" },
+  { role: "Coaching Officer (Tang)", name: "Robert English", phone: "087 124 9140", email: "" },
   { role: "Pitch Co-ordinator (Maryland)", name: "Danny Connaughton", phone: "087 799 6207", email: "" },
   { role: "Pitch Co-ordinator (Tang)", name: "Fiona Lennon", phone: "087 819 7855", email: "" },
 ];

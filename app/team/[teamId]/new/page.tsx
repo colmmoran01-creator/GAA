@@ -13,6 +13,10 @@ type EventType =
   | "challenge_match"
   | "go_games";
 
+// ✅ Venue dropdown options
+const VENUE_OPTIONS = ["Maryland", "Tang", "Other"] as const;
+type VenueOption = (typeof VENUE_OPTIONS)[number];
+
 function labelForType(t: EventType) {
   switch (t) {
     case "training":
@@ -41,11 +45,17 @@ export default function NewEventPage() {
 
   const [type, setType] = useState<EventType>("training");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [venue, setVenue] = useState("");
+
+  // ✅ Venue state: dropdown + optional free text
+  const [venueChoice, setVenueChoice] = useState<VenueOption>("Maryland");
+  const [venueOtherText, setVenueOtherText] = useState("");
 
   const isTraining = type === "training";
   const isGoGames = type === "go_games";
-  const needsScore = type === "league_match" || type === "championship_match" || type === "challenge_match";
+  const needsScore =
+    type === "league_match" ||
+    type === "championship_match" ||
+    type === "challenge_match";
   const needsOpposition = needsScore; // Go Games does NOT require it
 
   const [opposition, setOpposition] = useState("");
@@ -56,11 +66,18 @@ export default function NewEventPage() {
   const [oppPoints, setOppPoints] = useState(0);
 
   async function create() {
-    if (!teamId) return alert("Missing teamId. Go back to /teams and open a team.");
-    if (!venue.trim()) return alert("Venue is required.");
+    if (!teamId)
+      return alert("Missing teamId. Go back to /teams and open a team.");
+
+    const venueToSave =
+      venueChoice === "Other" ? venueOtherText.trim() : venueChoice;
+
+    if (!venueToSave) return alert("Venue is required.");
 
     if (needsOpposition && !opposition.trim()) {
-      return alert("Opposition is required for League/Championship/Challenge matches.");
+      return alert(
+        "Opposition is required for League/Championship/Challenge matches."
+      );
     }
 
     const payload: any = {
@@ -68,7 +85,7 @@ export default function NewEventPage() {
       type,
       typeLabel: labelForType(type),
       date,
-      venue: venue.trim(),
+      venue: venueToSave,
       createdAt: Date.now(),
     };
 
@@ -104,7 +121,9 @@ export default function NewEventPage() {
 
         <div className="mt-4 grid gap-3">
           <div>
-            <label className="block text-sm font-medium text-neutral-800">Type</label>
+            <label className="block text-sm font-medium text-neutral-800">
+              Type
+            </label>
             <select
               value={type}
               onChange={(e) => setType(e.target.value as EventType)}
@@ -119,7 +138,9 @@ export default function NewEventPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-neutral-800">Date</label>
+            <label className="block text-sm font-medium text-neutral-800">
+              Date
+            </label>
             <input
               type="date"
               value={date}
@@ -128,26 +149,59 @@ export default function NewEventPage() {
             />
           </div>
 
+          {/* ✅ Venue dropdown + optional free text */}
           <div>
-            <label className="block text-sm font-medium text-neutral-800">Venue</label>
-            <input
-              value={venue}
-              onChange={(e) => setVenue(e.target.value)}
-              placeholder="Maryland, Tang, or Other…"
+            <label className="block text-sm font-medium text-neutral-800">
+              Venue
+            </label>
+
+            <select
+              value={venueChoice}
+              onChange={(e) => {
+                const v = e.target.value as VenueOption;
+                setVenueChoice(v);
+                if (v !== "Other") setVenueOtherText("");
+              }}
               className="mt-1 w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900/10"
-            />
+            >
+              {VENUE_OPTIONS.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </select>
+
+            {venueChoice === "Other" && (
+              <input
+                value={venueOtherText}
+                onChange={(e) => setVenueOtherText(e.target.value)}
+                placeholder="Enter venue…"
+                className="mt-2 w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900/10"
+              />
+            )}
+
+            <div className="mt-1 text-xs text-neutral-500">
+              Pick Maryland or Tang, or choose Other to type a venue.
+            </div>
           </div>
 
           {/* Opposition: show for Go Games and Matches, hide for Training */}
           {!isTraining && (
             <div>
               <label className="block text-sm font-medium text-neutral-800">
-                Opposition {needsOpposition ? <span className="text-red-600">*</span> : <span className="text-neutral-500">(optional)</span>}
+                Opposition{" "}
+                {needsOpposition ? (
+                  <span className="text-red-600">*</span>
+                ) : (
+                  <span className="text-neutral-500">(optional)</span>
+                )}
               </label>
               <input
                 value={opposition}
                 onChange={(e) => setOpposition(e.target.value)}
-                placeholder={isGoGames ? "Optional (e.g., Caulry)" : "Required (e.g., Caulry)"}
+                placeholder={
+                  isGoGames ? "Optional (e.g., Caulry)" : "Required (e.g., Caulry)"
+                }
                 className="mt-1 w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900/10"
               />
               {isGoGames && (
@@ -164,13 +218,17 @@ export default function NewEventPage() {
               <div className="text-sm font-semibold text-neutral-900">Score</div>
               <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="rounded-2xl border border-neutral-200 bg-white p-3">
-                  <div className="text-sm font-semibold text-neutral-900">Our team</div>
+                  <div className="text-sm font-semibold text-neutral-900">
+                    Our team
+                  </div>
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <input
                       type="number"
                       min={0}
                       value={teamGoals}
-                      onChange={(e) => setTeamGoals(parseInt(e.target.value || "0", 10))}
+                      onChange={(e) =>
+                        setTeamGoals(parseInt(e.target.value || "0", 10))
+                      }
                       className="w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900 outline-none"
                       placeholder="Goals"
                     />
@@ -178,22 +236,30 @@ export default function NewEventPage() {
                       type="number"
                       min={0}
                       value={teamPoints}
-                      onChange={(e) => setTeamPoints(parseInt(e.target.value || "0", 10))}
+                      onChange={(e) =>
+                        setTeamPoints(parseInt(e.target.value || "0", 10))
+                      }
                       className="w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900 outline-none"
                       placeholder="Points"
                     />
                   </div>
-                  <div className="mt-1 text-xs text-neutral-500">Goals • Points</div>
+                  <div className="mt-1 text-xs text-neutral-500">
+                    Goals • Points
+                  </div>
                 </div>
 
                 <div className="rounded-2xl border border-neutral-200 bg-white p-3">
-                  <div className="text-sm font-semibold text-neutral-900">Opposition</div>
+                  <div className="text-sm font-semibold text-neutral-900">
+                    Opposition
+                  </div>
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <input
                       type="number"
                       min={0}
                       value={oppGoals}
-                      onChange={(e) => setOppGoals(parseInt(e.target.value || "0", 10))}
+                      onChange={(e) =>
+                        setOppGoals(parseInt(e.target.value || "0", 10))
+                      }
                       className="w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900 outline-none"
                       placeholder="Goals"
                     />
@@ -201,12 +267,16 @@ export default function NewEventPage() {
                       type="number"
                       min={0}
                       value={oppPoints}
-                      onChange={(e) => setOppPoints(parseInt(e.target.value || "0", 10))}
+                      onChange={(e) =>
+                        setOppPoints(parseInt(e.target.value || "0", 10))
+                      }
                       className="w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900 outline-none"
                       placeholder="Points"
                     />
                   </div>
-                  <div className="mt-1 text-xs text-neutral-500">Goals • Points</div>
+                  <div className="mt-1 text-xs text-neutral-500">
+                    Goals • Points
+                  </div>
                 </div>
               </div>
             </div>
