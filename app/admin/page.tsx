@@ -17,7 +17,14 @@ import { db } from "@/lib/firebase";
 import AppShell from "../components/AppShell";
 import * as XLSX from "xlsx-js-style";
 
-type Team = { id: string; name: string; coachNames?: string[]; coachUids?: string[]; adminUids?: string[] };
+type Team = {
+  id: string;
+  name: string;
+  coachNames?: string[];
+  coachUids?: string[];
+  adminUids?: string[];
+};
+
 type Player = { id: string; name: string };
 
 type EventDoc = {
@@ -50,6 +57,7 @@ type AttendanceDoc = {
   playerId: string;
   status?: string; // "Present" | "Absent"
   reason?: string;
+  reasonNote?: string; // ✅ used when reason === "Other"
   present?: boolean;
 };
 
@@ -91,7 +99,11 @@ function typeLabel(t: any) {
 
 function isMatchType(t: any) {
   const nt = normalizeType(t);
-  return nt === "league_match" || nt === "championship_match" || nt === "challenge_match";
+  return (
+    nt === "league_match" ||
+    nt === "championship_match" ||
+    nt === "challenge_match"
+  );
 }
 
 function isGoGames(t: any) {
@@ -124,7 +136,13 @@ function scoreString(e: EventDoc) {
   const tp = e.teamPoints;
   const og = e.oppGoals;
   const op = e.oppPoints;
-  if (tg === undefined || tp === undefined || og === undefined || op === undefined) return "";
+  if (
+    tg === undefined ||
+    tp === undefined ||
+    og === undefined ||
+    op === undefined
+  )
+    return "";
   return `${tg}-${tp} vs ${og}-${op}`;
 }
 
@@ -196,10 +214,19 @@ export default function AdminPage() {
       setMsg("");
 
       try {
-        const qAdmin = query(collection(db, "teams"), where("adminUids", "array-contains", user.uid));
-        const qCoach = query(collection(db, "teams"), where("coachUids", "array-contains", user.uid));
+        const qAdmin = query(
+          collection(db, "teams"),
+          where("adminUids", "array-contains", user.uid)
+        );
+        const qCoach = query(
+          collection(db, "teams"),
+          where("coachUids", "array-contains", user.uid)
+        );
 
-        const [snapAdmin, snapCoach] = await Promise.all([getDocs(qAdmin), getDocs(qCoach)]);
+        const [snapAdmin, snapCoach] = await Promise.all([
+          getDocs(qAdmin),
+          getDocs(qCoach),
+        ]);
 
         const map = new Map<string, Team>();
         snapAdmin.forEach((d) => {
@@ -211,7 +238,9 @@ export default function AdminPage() {
           map.set(d.id, { id: d.id, name: data?.name ?? d.id, ...(data as any) });
         });
 
-        const list = Array.from(map.values()).sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+        const list = Array.from(map.values()).sort((a, b) =>
+          (a.name ?? "").localeCompare(b.name ?? "")
+        );
         setTeams(list);
         if (list.length > 0) setTeamId((prev) => prev || list[0].id);
       } catch (e: any) {
@@ -235,13 +264,20 @@ export default function AdminPage() {
       setMsg("");
 
       try {
-        const qEvents = query(collection(db, "events"), where("teamId", "==", teamId), orderBy("date", "asc"));
+        const qEvents = query(
+          collection(db, "events"),
+          where("teamId", "==", teamId),
+          orderBy("date", "asc")
+        );
         const snapE = await getDocs(qEvents);
         const ev: EventDoc[] = [];
         snapE.forEach((d) => ev.push({ id: d.id, ...(d.data() as any) }));
         setEvents(ev);
 
-        const qPlayers = query(collection(db, "players"), where("teamId", "==", teamId));
+        const qPlayers = query(
+          collection(db, "players"),
+          where("teamId", "==", teamId)
+        );
         const snapP = await getDocs(qPlayers);
         const pl: Player[] = [];
         snapP.forEach((d) => pl.push({ id: d.id, ...(d.data() as any) }));
@@ -249,7 +285,10 @@ export default function AdminPage() {
         setPlayers(pl);
 
         // attendance records for team
-        const qAtt = query(collection(db, "attendance"), where("teamId", "==", teamId));
+        const qAtt = query(
+          collection(db, "attendance"),
+          where("teamId", "==", teamId)
+        );
         const snapA = await getDocs(qAtt);
         const at: AttendanceDoc[] = [];
         snapA.forEach((d) => at.push({ id: d.id, ...(d.data() as any) }));
@@ -278,13 +317,23 @@ export default function AdminPage() {
       setMsg("");
       if (!teamId) return;
 
-      const ev = [...events].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      const ev = [...events].sort((a, b) =>
+        String(a.date).localeCompare(String(b.date))
+      );
+
+      // Helpers for lookups
+      const eventById = new Map<string, EventDoc>();
+      ev.forEach((e) => eventById.set(e.id, e));
+
+      const playerNameById = new Map<string, string>();
+      players.forEach((p) => playerNameById.set(p.id, p.name ?? ""));
 
       // Map attendance: attMap[eventId][playerId] = present boolean
       const attMap = new Map<string, Map<string, boolean>>();
       for (const a of attendance) {
         if (!a.eventId || !a.playerId) continue;
-        const present = (a.status ?? "").toLowerCase() === "present" || a.present === true;
+        const present =
+          (a.status ?? "").toLowerCase() === "present" || a.present === true;
         if (!attMap.has(a.eventId)) attMap.set(a.eventId, new Map());
         attMap.get(a.eventId)!.set(a.playerId, present);
       }
@@ -306,6 +355,8 @@ export default function AdminPage() {
         return finalName;
       }
       const coachNames = await Promise.all(ev.map(resolveCoachName));
+      const coachNameByEventId = new Map<string, string>();
+      ev.forEach((e, idx) => coachNameByEventId.set(e.id, coachNames[idx] ?? ""));
 
       // ✅ Attendance saved flag per event
       const savedFlags = ev.map((e) => !!e.attendanceTakenAt);
@@ -316,16 +367,19 @@ export default function AdminPage() {
       const venueRow = ["Venue", ...ev.map((e) => e.venue ?? "")];
       const coachRow = ["Coach", ...coachNames];
       const oppRow = ["Opposition", ...ev.map((e) => e.opposition ?? "")];
-      const scoreRow = ["Score", ...ev.map((e) => (isMatchType(e.type) && !isGoGames(e.type) ? scoreString(e) : ""))];
+      const scoreRow = [
+        "Score",
+        ...ev.map((e) =>
+          isMatchType(e.type) && !isGoGames(e.type) ? scoreString(e) : ""
+        ),
+      ];
 
       // matrix rows
       const playerRows: (string | number)[][] = [];
 
       // ✅ presentCounts: null means "Not taken"
       const presentCounts: (number | null)[] = new Array(ev.length).fill(null);
-
-      // initialise counts for saved events only
-      ev.forEach((e, idx) => {
+      ev.forEach((_, idx) => {
         if (savedFlags[idx]) presentCounts[idx] = 0;
       });
 
@@ -333,7 +387,6 @@ export default function AdminPage() {
         const row: (string | number)[] = [p.name ?? ""];
         ev.forEach((e, idx) => {
           if (!savedFlags[idx]) {
-            // ✅ Not saved: show blank marker instead of "No"
             row.push("—");
             return;
           }
@@ -346,7 +399,10 @@ export default function AdminPage() {
       }
 
       // totals and % rows (blank for not saved)
-      const totalRow: (string | number)[] = ["Total present", ...presentCounts.map((x) => (x === null ? "" : x))];
+      const totalRow: (string | number)[] = [
+        "Total present",
+        ...presentCounts.map((x) => (x === null ? "" : x)),
+      ];
       const pctRow: (string | number)[] = [
         "% attendance",
         ...presentCounts.map((c, idx) => {
@@ -371,15 +427,17 @@ export default function AdminPage() {
         const t = normalizeType(e.type);
         buckets[t] += 1;
 
-        if (!savedFlags[idx]) return; // ✅ ignore unsaved events in attendance averages
-        presentTotalsByType[t] += (presentCounts[idx] ?? 0);
+        if (!savedFlags[idx]) return;
+        presentTotalsByType[t] += presentCounts[idx] ?? 0;
         slotsByType[t] += players.length;
       });
 
       const totalEvents = ev.length;
 
-      // overall avg only counts saved events
-      const totalPresent = presentCounts.reduce<number>((acc, v) => acc + (v ?? 0), 0);
+      const totalPresent = presentCounts.reduce<number>(
+        (acc, v) => acc + (v ?? 0),
+        0
+      );
       const totalSavedEvents = savedFlags.filter(Boolean).length;
       const totalSlots = totalSavedEvents * players.length;
       const overallAvg = totalSlots ? totalPresent / totalSlots : 0;
@@ -398,7 +456,10 @@ export default function AdminPage() {
       const perPlayerSplitRows: (string | number)[][] = [];
       for (const p of players) {
         const countPresent = (ids: string[]) =>
-          ids.reduce((acc, id) => acc + (attMap.get(id)?.get(p.id) === true ? 1 : 0), 0);
+          ids.reduce(
+            (acc, id) => acc + (attMap.get(id)?.get(p.id) === true ? 1 : 0),
+            0
+          );
 
         const trP = countPresent(trainingIds);
         const maP = countPresent(matchIds);
@@ -422,7 +483,7 @@ export default function AdminPage() {
         ]);
       }
 
-      // Reasons Missing tab (Player | Reason | Count)
+      // Reasons Missing tab (Player | Reason | Count)  ✅ "Other" stays clean here
       const reasonCounts = new Map<string, Map<string, number>>();
       for (const a of attendance) {
         const status = (a.status ?? "").toLowerCase();
@@ -446,6 +507,53 @@ export default function AdminPage() {
         }
       }
 
+      // ✅ NEW: Other Notes sheet (rows only when Reason = Other AND reasonNote exists)
+      const otherNotesAoa: any[][] = [
+        ["Date", "Event type", "Venue", "Opposition", "Player", "Note", "Coach"],
+      ];
+
+      // Only include notes for events in THIS team list (safety)
+      for (const a of attendance) {
+        const status = (a.status ?? "").toLowerCase();
+        if (status !== "absent") continue;
+
+        const reason = String(a.reason ?? "").trim();
+        if (reason !== "Other") continue;
+
+        const note = String(a.reasonNote ?? "").trim();
+        if (!note) continue;
+
+        const e = eventById.get(a.eventId);
+        if (!e) continue; // note could exist for another team/event; ignore
+
+        const playerName = playerNameById.get(a.playerId) ?? "";
+        const coach = coachNameByEventId.get(a.eventId) ?? "";
+
+        otherNotesAoa.push([
+          e.date ?? "",
+          typeLabel(e.type),
+          e.venue ?? "",
+          e.opposition ?? "",
+          playerName,
+          note,
+          coach,
+        ]);
+      }
+
+      // Sort Other Notes by Date then Player
+      if (otherNotesAoa.length > 1) {
+        const header = otherNotesAoa[0];
+        const rows = otherNotesAoa.slice(1);
+        rows.sort((r1, r2) => {
+          const d1 = String(r1[0] ?? "");
+          const d2 = String(r2[0] ?? "");
+          if (d1 !== d2) return d1.localeCompare(d2);
+          return String(r1[4] ?? "").localeCompare(String(r2[4] ?? ""));
+        });
+        otherNotesAoa.length = 0;
+        otherNotesAoa.push(header, ...rows);
+      }
+
       // Build Attendance Matrix sheet
       const aoa: any[][] = [];
       aoa.push(eventTypeRow); // row 0
@@ -457,7 +565,7 @@ export default function AdminPage() {
       aoa.push([]);           // spacer
 
       const matrixHeaderRowIndex = aoa.length;
-      aoa.push(["Player", ...ev.map((e, idx) => (savedFlags[idx] ? "" : "NOT TAKEN"))]);
+      aoa.push(["Player", ...ev.map((_, idx) => (savedFlags[idx] ? "" : "NOT TAKEN"))]);
 
       const firstPlayerRow = aoa.length;
       aoa.push(...playerRows);
@@ -470,12 +578,23 @@ export default function AdminPage() {
       aoa.push(["Summary"]);
       aoa.push(["Total events", totalEvents]);
       aoa.push(["Events with attendance saved", totalSavedEvents]);
-      aoa.push(["Overall avg attendance (saved events only)", totalSavedEvents ? pct(overallAvg) : ""]);
+      aoa.push([
+        "Overall avg attendance (saved events only)",
+        totalSavedEvents ? pct(overallAvg) : "",
+      ]);
       aoa.push([]);
       aoa.push(["Type", "# Events", "Avg attendance (saved only)"]);
 
-      (["training", "league_match", "championship_match", "challenge_match", "go_games"] as const).forEach((t) => {
-        const avg = slotsByType[t] ? presentTotalsByType[t] / slotsByType[t] : NaN;
+      ([
+        "training",
+        "league_match",
+        "championship_match",
+        "challenge_match",
+        "go_games",
+      ] as const).forEach((t) => {
+        const avg = slotsByType[t]
+          ? presentTotalsByType[t] / slotsByType[t]
+          : NaN;
         aoa.push([typeLabel(t), buckets[t], pct(avg)]);
       });
 
@@ -564,16 +683,34 @@ export default function AdminPage() {
       const ws2 = XLSX.utils.aoa_to_sheet(reasonAoa);
       ws2["!cols"] = [{ wch: 26 }, { wch: 22 }, { wch: 10 }];
 
+      // Other Notes sheet
+      const ws3 = XLSX.utils.aoa_to_sheet(otherNotesAoa);
+      ws3["!cols"] = [
+        { wch: 12 }, // Date
+        { wch: 18 }, // Event type
+        { wch: 18 }, // Venue
+        { wch: 18 }, // Opposition
+        { wch: 26 }, // Player
+        { wch: 40 }, // Note
+        { wch: 22 }, // Coach
+
+      ];
+
       // Workbook
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Attendance Matrix");
       XLSX.utils.book_append_sheet(wb, ws2, "Reasons Missing");
+      XLSX.utils.book_append_sheet(wb, ws3, "Other Notes"); // ✅ new tab
 
       const teamName = teams.find((t) => t.id === teamId)?.name ?? teamId;
-      const fname = `attendance_${teamName}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      const fname = `attendance_${teamName}_${new Date()
+        .toISOString()
+        .slice(0, 10)}.xlsx`;
 
       XLSX.writeFile(wb, fname);
-      setMsg("Exported Excel ✅ (Unsaved events show NOT TAKEN, do not count as 0)");
+      setMsg(
+        "Exported Excel ✅ (3 tabs: Matrix, Reasons, Other Notes. 'Other' notes are kept separate)"
+      );
     } catch (e: any) {
       console.error(e);
       setErr(e?.message ?? String(e));
@@ -621,7 +758,9 @@ export default function AdminPage() {
         )}
 
         <div className="mt-4">
-          <label className="block text-sm font-medium text-neutral-800">Team</label>
+          <label className="block text-sm font-medium text-neutral-800">
+            Team
+          </label>
           <select
             value={teamId}
             onChange={(e) => setTeamId(e.target.value)}
@@ -644,19 +783,27 @@ export default function AdminPage() {
             </button>
 
             <div className="text-xs text-neutral-500">
-              Exports 2 tabs: Attendance Matrix + Reasons Missing
+              Exports 3 tabs: Attendance Matrix + Reasons Missing + Other Notes
             </div>
           </div>
 
           <div className="mt-3 text-xs text-neutral-500">
-            Events: <strong className="text-neutral-800">{stats.events}</strong> • Players:{" "}
-            <strong className="text-neutral-800">{stats.players}</strong> • Attendance records:{" "}
+            Events: <strong className="text-neutral-800">{stats.events}</strong>{" "}
+            • Players:{" "}
+            <strong className="text-neutral-800">{stats.players}</strong> •
+            Attendance records:{" "}
             <strong className="text-neutral-800">{stats.attendance}</strong>
           </div>
 
           <div className="mt-2 text-xs text-neutral-500">
-            Export logic: if <code>events.attendanceTakenAt</code> is missing, that event column shows{" "}
-            <strong>NOT TAKEN</strong> and does not count as 0% attendance.
+            Export logic: if <code>events.attendanceTakenAt</code> is missing,
+            that event column shows <strong>NOT TAKEN</strong> and does not count
+            as 0% attendance.
+          </div>
+
+          <div className="mt-2 text-xs text-neutral-500">
+            “Other” free text is captured in <strong>Other Notes</strong> tab
+            (kept separate so Reasons counts stay clean).
           </div>
         </div>
       </div>

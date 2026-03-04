@@ -47,9 +47,35 @@ type AttendanceRow = {
   playerId: string;
   status: "Present" | "Absent";
   reason: string;
+  reasonNote?: string; // free text only when reason === "Other"
 };
 
-const ABSENCE_REASONS = ["", "Rugby", "Soccer", "Hurling", "Holidays", "Work", "No Apology"];
+const ABSENCE_GROUPS = [
+  {
+    label: "School / Representative",
+    options: ["County Team", "Schools Team", "Other Age Group Training"],
+  },
+  {
+    label: "Other Sports",
+    options: ["Rugby", "Soccer", "Hurling"],
+  },
+  {
+    label: "Availability",
+    options: ["Holidays", "Work"],
+  },
+  {
+    label: "Health",
+    options: ["Illness", "Injury"],
+  },
+  {
+    label: "Admin",
+    options: ["No Apology"],
+  },
+  {
+    label: "Other",
+    options: ["Other"],
+  },
+] as const;
 
 // Venue dropdown options
 const VENUE_OPTIONS = ["Maryland", "Tang", "Other"] as const;
@@ -136,9 +162,10 @@ export default function EventPage() {
   const [rows, setRows] = useState<Record<string, AttendanceRow>>({});
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState("");
-  const [err, setErr] = useState("");
+const [saving, setSaving] = useState(false);
+const [justSaved, setJustSaved] = useState(false); // 👈 ADD THIS
+const [msg, setMsg] = useState("");
+const [err, setErr] = useState("");
 
   // Venue state
   const [venueChoice, setVenueChoice] = useState<VenueOption>("Maryland");
@@ -264,12 +291,13 @@ export default function EventPage() {
               playerId: a.playerId,
               status,
               reason: String(a.reason ?? ""),
+		reasonNote: String(a.reasonNote ?? ""),
             };
           });
 
           // default any missing player to Present in UI
           for (const p of pList) {
-            if (!map[p.id]) map[p.id] = { playerId: p.id, status: "Present", reason: "" };
+            if (!map[p.id]) map[p.id] = { playerId: p.id, status: "Present", reason: "", reasonNote: "" };
           }
 
           setRows(map);
@@ -333,24 +361,36 @@ export default function EventPage() {
       const { uid, name } = await getCurrentUserDisplayName();
       const batch = writeBatch(db);
 
-      for (const p of players) {
-        const r = rows[p.id] ?? ({ playerId: p.id, status: "Present", reason: "" } as AttendanceRow);
-        const docId = `${eventId}_${p.id}`;
+    for (const p of players) {
+  const r =
+    rows[p.id] ??
+    ({ playerId: p.id, status: "Present", reason: "", reasonNote: "" } as AttendanceRow);
 
-        batch.set(
-          doc(db, "attendance", docId),
-          {
-            teamId: event.teamId,
-            eventId,
-            playerId: p.id,
-            playerName: p.name ?? "",
-            status: r.status,
-            reason: r.status === "Absent" ? (r.reason ?? "") : "",
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-      }
+  const docId = `${eventId}_${p.id}`;
+
+  // ✅ Compute fields BEFORE the object literal
+  const reason = r.status === "Absent" ? String(r.reason ?? "") : "";
+  const reasonNote =
+    r.status === "Absent" && reason === "Other"
+      ? String(r.reasonNote ?? "").trim()
+      : "";
+
+  batch.set(
+    doc(db, "attendance", docId),
+    {
+      teamId: event.teamId,
+      eventId,
+      playerId: p.id,
+      playerName: p.name ?? "",
+      status: r.status,
+      reason,
+      reasonNote,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+}
+
 
       await batch.commit();
 
@@ -384,6 +424,8 @@ export default function EventPage() {
 
       setMsg(`Attendance saved ✅ (Recorded by ${name})`);
       setDirty(false);
+setJustSaved(true);
+setTimeout(() => setJustSaved(false), 2000);
     } catch (e: any) {
       console.error(e);
       setErr(e?.message ?? String(e));
@@ -547,91 +589,167 @@ export default function EventPage() {
         </div>
 
         {/* Attendance list */}
-        <div className="rounded-2xl border border-neutral-200 bg-white p-2 shadow-sm">
-          <div className="grid gap-2">
-            {players.map((p) => {
-              const r = rows[p.id] ?? ({ playerId: p.id, status: "Present", reason: "" } as AttendanceRow);
-              const isAbsent = r.status === "Absent";
+        {/* Attendance list */}
+<div className="rounded-2xl border border-neutral-200 bg-white p-2 shadow-sm">
+  <div className="grid gap-2">
+    {players.map((p) => {
+      const r =
+        rows[p.id] ??
+        ({ playerId: p.id, status: "Present", reason: "", reasonNote: "" } as AttendanceRow);
 
-              return (
-                <div key={p.id} className="rounded-2xl border border-neutral-200 bg-white p-3 shadow-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-neutral-900">{p.name}</div>
+      const isAbsent = r.status === "Absent";
 
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => {
-                          setRows((prev) => ({
-                            ...prev,
-                            [p.id]: { ...r, status: "Present", reason: "" },
-                          }));
-                          if (initialised) setDirty(true);
-                        }}
-                        className={`rounded-full px-4 py-2 text-sm font-semibold shadow-sm transition ${
-                          !isAbsent
-                            ? "bg-emerald-600 text-white"
-                            : "bg-white text-neutral-900 border border-neutral-200 hover:bg-neutral-50"
-                        }`}
-                      >
-                        Present
-                      </button>
+      return (
+        <div
+          key={p.id}
+          className="rounded-2xl border border-neutral-200 bg-white p-3 shadow-sm"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm font-semibold text-neutral-900">{p.name}</div>
 
-                      <button
-                        onClick={() => {
-                          setRows((prev) => ({
-                            ...prev,
-                            [p.id]: { ...r, status: "Absent" },
-                          }));
-                          if (initialised) setDirty(true);
-                        }}
-                        className={`rounded-full px-4 py-2 text-sm font-semibold shadow-sm transition ${
-                          isAbsent
-                            ? "bg-[#7A0019] text-white"
-                            : "bg-white text-neutral-900 border border-neutral-200 hover:bg-neutral-50"
-                        }`}
-                      >
-                        Absent
-                      </button>
-                    </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setRows((prev) => ({
+                    ...prev,
+                    [p.id]: { ...r, status: "Present", reason: "", reasonNote: "" },
+                  }));
+                  if (initialised) {
+                    setDirty(true);
+                    setJustSaved(false);
+                  }
+                }}
+                className={`rounded-full px-4 py-2 text-sm font-semibold shadow-sm transition ${
+                  !isAbsent
+                    ? "bg-emerald-600 text-white"
+                    : "bg-white text-neutral-900 border border-neutral-200 hover:bg-neutral-50"
+                }`}
+              >
+                Present
+              </button>
+
+              <button
+                onClick={() => {
+                  setRows((prev) => ({
+                    ...prev,
+                    [p.id]: { ...r, status: "Absent" },
+                  }));
+                  if (initialised) {
+                    setDirty(true);
+                    setJustSaved(false);
+                  }
+                }}
+                className={`rounded-full px-4 py-2 text-sm font-semibold shadow-sm transition ${
+                  isAbsent
+                    ? "bg-[#7A0019] text-white"
+                    : "bg-white text-neutral-900 border border-neutral-200 hover:bg-neutral-50"
+                }`}
+              >
+                Absent
+              </button>
+            </div>
+          </div>
+
+          {isAbsent && (
+            <div className="mt-3">
+              <label className="block text-xs font-semibold text-neutral-700">
+                Reason (optional)
+              </label>
+
+              <select
+                value={r.reason}
+                onChange={(e) => {
+                  const val = e.target.value;
+
+                  setRows((prev) => ({
+                    ...prev,
+                    [p.id]: {
+                      ...r,
+                      reason: val,
+                      reasonNote: val === "Other" ? (r.reasonNote ?? "") : "",
+                    },
+                  }));
+
+                  if (initialised) {
+                    setDirty(true);
+                    setJustSaved(false);
+                  }
+                }}
+                className="mt-1 w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900/10 md:w-[260px]"
+              >
+                <option value="">Select…</option>
+
+                {ABSENCE_GROUPS.map((g) => (
+                  <optgroup key={g.label} label={g.label}>
+                    {g.options.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+
+              {r.reason === "Other" && (
+                <div className="mt-2">
+                  <label className="block text-xs font-semibold text-neutral-700">
+                    Other (Optional Note)
+                  </label>
+                  <input
+                    value={r.reasonNote ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value.slice(0, 60);
+                      setRows((prev) => ({
+                        ...prev,
+                        [p.id]: { ...r, reasonNote: v },
+                      }));
+
+                      if (initialised) {
+                        setDirty(true);
+                        setJustSaved(false);
+                      }
+                    }}
+                    placeholder="Birthday, Family Event, etc."
+                    className="mt-1 w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900/10 md:w-[260px]"
+                  />
+                  <div className="mt-1 text-xs text-neutral-500">
+                    This note is saved only when Reason = “Other”.
                   </div>
-
-                  {isAbsent && (
-                    <div className="mt-3">
-                      <label className="block text-xs font-semibold text-neutral-700">Reason (optional)</label>
-                      <select
-                        value={r.reason}
-                        onChange={(e) => {
-                          setRows((prev) => ({
-                            ...prev,
-                            [p.id]: { ...r, reason: e.target.value },
-                          }));
-                          if (initialised) setDirty(true);
-                        }}
-                        className="mt-1 w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900/10 md:w-[260px]"
-                      >
-                        {ABSENCE_REASONS.map((x) => (
-                          <option key={x} value={x}>
-                            {x === "" ? "Select…" : x}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
                 </div>
-              );
-            })}
-          </div>
-
-          <div className="sticky bottom-3 mt-3 px-2">
-            <button
-              onClick={saveAttendance}
-              disabled={saving}
-              className="w-full rounded-full bg-[#1E3A8A] px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-50"
-            >
-              {saving ? "Saving…" : "Save Attendance"}
-            </button>
-          </div>
+              )}
+            </div>
+          )}
         </div>
+      );
+    })}
+  </div>
+
+  {/* Sticky Save Footer */}
+  <div className="sticky bottom-3 mt-3 px-2 backdrop-blur">
+    <button
+      onClick={saveAttendance}
+      disabled={saving}
+      className={`w-full rounded-full px-5 py-3 text-sm font-semibold text-white shadow-lg transition-all duration-300 ${
+        saving
+          ? "bg-neutral-400"
+          : justSaved
+          ? "bg-emerald-600"
+          : dirty
+          ? "bg-amber-600"
+          : "bg-[#1E3A8A]"
+      }`}
+    >
+      {saving
+        ? "Saving…"
+        : justSaved
+        ? "Saved ✓"
+        : dirty
+        ? "Save Attendance (Unsaved)"
+        : "Save Attendance"}
+    </button>
+  </div>
+</div>
+
 
         <div className="text-xs text-neutral-500">
           Tip: Coach name is pulled from <code>users/{`{uid}`}</code> and saved into{" "}
