@@ -105,20 +105,23 @@ const playerStats: any = {};
 
 attendanceSnap.forEach((doc) => {
   const a: any = doc.data();
-  const pid = a.playerId;
+  const name = a.playerName?.trim();
 
-  if (!playerStats[pid]) {
-    playerStats[pid] = { present: 0, total: 0 };
+  if (!name) return;
+
+  if (!playerStats[name]) {
+    playerStats[name] = { present: 0, total: 0 };
   }
 
-  playerStats[pid].total++;
+  playerStats[name].total++;
 
-  if (a.status === "present") {
-    playerStats[pid].present++;
+  if ((a.status || "").toLowerCase() === "present") {
+    playerStats[name].present++;
   }
 });
+
 const playerAttendance = playerList.map((p) => {
-  const stat = playerStats[p.id] || { present: 0, total: 0 };
+  const stat = playerStats[p.name?.trim()] || { present: 0, total: 0 };
 
   const pct =
     stat.total > 0 ? Math.round((stat.present / stat.total) * 100) : 0;
@@ -246,8 +249,8 @@ setLowPlayers(playerAttendance.slice(-5).reverse());
 <div className="mt-4 rounded-2xl border border-neutral-200 bg-white shadow-sm p-4">
 
   <h2 className="text-sm font-semibold text-neutral-800 mb-3">
-    Player Attendance
-  </h2>
+    Player Attendance<br></br>(allow for 3-4 sessions for accurate stats) </h2> 
+  
 
   <div className="grid grid-cols-2 gap-4">
 
