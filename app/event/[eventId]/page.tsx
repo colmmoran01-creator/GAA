@@ -369,7 +369,10 @@ const [err, setErr] = useState("");
   const docId = `${eventId}_${p.id}`;
 
   // ✅ Compute fields BEFORE the object literal
-  const reason = r.status === "Absent" ? String(r.reason ?? "") : "";
+  const reason =
+  r.status === "Absent"
+    ? (String(r.reason ?? "").trim() || "No Apology")
+    : "";
   const reasonNote =
     r.status === "Absent" && reason === "Other"
       ? String(r.reasonNote ?? "").trim()
@@ -653,7 +656,7 @@ setTimeout(() => setJustSaved(false), 2000);
           {isAbsent && (
             <div className="mt-3">
               <label className="block text-xs font-semibold text-neutral-700">
-                Reason (optional)
+                Reason
               </label>
 
               <select

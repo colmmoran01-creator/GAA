@@ -158,10 +158,10 @@ setLowPlayers(playerAttendance.slice(-5).reverse());
             trainingTotal += e.attendanceTotal ?? 0;
           }
 
-          if (e.type === "match") {
-            matchPresent += e.attendancePresent ?? 0;
-            matchTotal += e.attendanceTotal ?? 0;
-          }
+          if (e.type && e.type !== "training") {
+  matchPresent += e.attendancePresent ?? 0;
+  matchTotal += e.attendanceTotal ?? 0;
+}
         });
 
         setTrainingPct(
