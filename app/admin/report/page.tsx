@@ -18,7 +18,7 @@ export default function AdminReport() {
       const eventSnap = await getDocs(collection(db, "events"));
       const attendanceSnap = await getDocs(collection(db, "attendance"));
 
-      const teamList = teamSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const teamList = teamSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
 
       const order = ["Nursery", "U8", "U08", "U10", "U12", "U14", "U16", "U18", "U20"];
 
@@ -229,7 +229,7 @@ export default function AdminReport() {
         <thead className="bg-neutral-100">
           <tr>
             <th className="p-2 text-left">Team</th>
-            <th className="p-2">Players (Within Age)</th>
+            <th className="p-2">Players (within age)</th>
             <th className="p-2">Sessions</th>
             <th className="p-2">Attendance</th>
             <th className="p-2">Record</th>
